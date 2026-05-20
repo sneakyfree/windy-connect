@@ -1,8 +1,8 @@
 # ADR-052 — Two-tier ecosystem access: free for humans, Eternitas-gated for agent-to-agent
 
-**Status:** Draft (2026-05-20) — pending Grant acceptance
+**Status:** Accepted (2026-05-20) — **canonical home is `~/kit-army-config/docs/adr-052-two-tier-ecosystem-access-2026-05-20.md`**; this copy is a reference/draft snapshot retained alongside windy-connect's bundle spec for ergonomic local reading.
 **Author:** Claude
-**Decider:** Grant
+**Decider:** Grant (concurred via `/goal` directive 2026-05-20)
 **Companion docs:**
 - [Eternitas Agent Credentials Bundle v1 spec](../bundle-spec-v1.md)
 - [ADR-011](https://github.com/sneakyfree/kit-army-config/blob/main/docs/) — Eternitas independence (Utah LLC, Windy is showcase)
