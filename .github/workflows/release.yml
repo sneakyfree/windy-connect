@@ -64,6 +64,9 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true
+          verbose: true
 
   publish-test:
     name: Publish to TestPyPI (manual dispatch only)
@@ -81,3 +84,5 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
+          attestations: true
+          verbose: true
