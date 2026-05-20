@@ -3,6 +3,15 @@ main = "src/index.ts"
 compatibility_date = "2026-05-01"
 account_id = "193b347aedeaafe35de0b5a534b2d9aa"
 
+# Embed the canonical SKILL.md from skills/windy-access/ at build time so the
+# Worker can serve it at /.well-known/skills/windy-access/SKILL.md. This means
+# Hermes auto-discovery works regardless of whether the source repo is
+# public/private.
+[[rules]]
+type = "Text"
+globs = ["**/*.md"]
+fallthrough = true
+
 # KV namespace for device-code → bundle correlation (RFC 8628).
 # Created via: wrangler kv:namespace create DEVICE_CODES
 # Then paste the returned id below.
