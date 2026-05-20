@@ -60,7 +60,14 @@ windy-connect/
 
 ## Status
 
-**Pre-alpha.** This is a fresh scaffold. The CLI doesn't run yet. The bundle spec is v1-draft. The ADR is provisional.
+**Pre-alpha — but the CLI runs end-to-end against a mock bundle.** Real OAuth orchestrator backend not yet deployed. Try it:
+
+```bash
+pip install -e .
+windy connect --mock --dry-run
+```
+
+The bundle spec is v1-draft. ADR-052 is Accepted (canonical home: `~/kit-army-config/docs/adr-052-two-tier-ecosystem-access-2026-05-20.md`).
 
 ## What's next
 

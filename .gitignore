@@ -49,3 +49,6 @@ htmlcov/
 
 # Build artifacts
 *.log
+
+# Local install artifacts
+.venv/
