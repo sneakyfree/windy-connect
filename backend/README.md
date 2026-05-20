@@ -37,24 +37,62 @@ Flipping `ENABLE_REAL_PROVISIONING=true` before all four are real will throw at 
 
 ## Deploy
 
+The Worker is **already deployed** to two workers.dev URLs (as of 2026-05-20):
+
+| Environment | URL |
+|---|---|
+| Production | `https://windy-connect-orchestrator.windyword.workers.dev` |
+| Staging | `https://windy-connect-orchestrator-staging.windyword.workers.dev` |
+
+Both are in sandbox mode (`ENABLE_REAL_PROVISIONING=false`) — no Stalwart/Eternitas/etc. writes happen.
+
+### Known gap: KV namespace not yet bound
+
+The Worker uses an in-memory `Map` fallback for device-code sessions when no KV namespace is bound. This works for single-instance flows (`wrangler dev`, low-traffic single-user testing) but **does not work reliably in production multi-instance edge deployment** — a `pair/submit` request can land on a Worker instance that didn't see the original `device/init`.
+
+**To fix (one-time, requires Cloudflare dashboard access)**:
+
+1. Dashboard → Workers & Pages → KV → "Create namespace" → name it `windy-connect-orchestrator-DEVICE_CODES`
+2. Copy the returned namespace ID
+3. Uncomment + edit `wrangler.toml` to bind it:
+   ```toml
+   kv_namespaces = [
+     { binding = "DEVICE_CODES", id = "<paste-id-here>" }
+   ]
+   ```
+4. Re-deploy:
+   ```bash
+   CLOUDFLARE_API_TOKEN="$(grep -A1 'WindyWorkersGateToken (Workers Scripts' ~/kit-army-config/ACCESS_LOCKBOX.md | grep -oE 'cfut_[A-Za-z0-9]+' | head -1)" \
+     npx wrangler deploy
+   ```
+
+Wrangler CLI cannot create KV namespaces with any token currently in the lockbox — `WindyWorkersGateToken` lacks KV scope, the god token returns `Authentication error 10000` against the KV endpoint despite its "Full account access" label. Dashboard creation is the unblocking step.
+
+### Re-deploying
+
 ```bash
 cd backend
-npm install
-# First time only:
-npx wrangler kv:namespace create DEVICE_CODES
-# Paste the returned id into wrangler.toml under kv_namespaces, then:
-
-# Set secrets
-npx wrangler secret put STALWART_ADMIN_PASS  # from kit-army-config: <REDACTED-see-kit-army-config>
-# (other secrets TODO — see wrangler.toml)
-
-# Deploy to default *.workers.dev URL
-CLOUDFLARE_API_TOKEN="$(grep WindyWorkersGateToken ~/kit-army-config/ACCESS_LOCKBOX.md | grep cfut_)" \
-  npx wrangler deploy
-
-# To bind api.windyconnect.com — requires god token (Workers Routes:Edit on the zone):
-#   uncomment the [[routes]] block in wrangler.toml and re-deploy with the god token.
+npm install      # one-time
+CLOUDFLARE_API_TOKEN="$(grep -A1 'WindyWorkersGateToken (Workers Scripts' ~/kit-army-config/ACCESS_LOCKBOX.md | grep -oE 'cfut_[A-Za-z0-9]+' | head -1)" \
+  npx wrangler deploy                # → production
+  # or:
+  npx wrangler deploy --env staging  # → staging
 ```
+
+### Setting secrets (once Synapse/Mind admin endpoints exist)
+
+```bash
+npx wrangler secret put STALWART_ADMIN_PASS   # <REDACTED-see-kit-army-config> from kit-army-config
+npx wrangler secret put GOOGLE_OAUTH_CLIENT_ID
+npx wrangler secret put GOOGLE_OAUTH_CLIENT_SECRET
+npx wrangler secret put SYNAPSE_ADMIN_TOKEN
+npx wrangler secret put MIND_ADMIN_TOKEN
+# Then flip ENABLE_REAL_PROVISIONING=true in wrangler.toml and re-deploy.
+```
+
+### Custom domain (later)
+
+To bind `api.windyconnect.com` — requires `Workers Routes: Edit` on the `windyconnect.com` zone, which `WindyWorkersGateToken` doesn't have for that zone. Use `TheWindstormCloudflareGodToken` for a one-time route bind, or mint a scoped token via dashboard. Uncomment the `[[routes]]` block in `wrangler.toml` first.
 
 ## Test locally
 

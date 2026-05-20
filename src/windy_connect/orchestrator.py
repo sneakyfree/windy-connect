@@ -23,7 +23,7 @@ from rich.console import Console
 
 from .bundle import Bundle
 
-DEFAULT_API_URL = "https://windy-connect-orchestrator.windyconnect.workers.dev"
+DEFAULT_API_URL = "https://windy-connect-orchestrator.windyword.workers.dev"
 MAX_POLL_SECONDS = 900  # match backend SESSION_TTL_SECONDS
 
 console = Console()
