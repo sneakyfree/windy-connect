@@ -26,11 +26,10 @@ ISSUER_URL = "https://windyconnect.com"
 #   SYNAPSE_ADMIN_TOKEN         (TODO: not yet in lockbox)
 #   MIND_ADMIN_TOKEN            (TODO: Mind needs per-user key issuance endpoint)
 
-# Custom-domain route — uncomment AFTER api.windyconnect.com DNS+route is set
-# via the god token. The workers.dev URL works without this.
-# [[routes]]
-# pattern = "api.windyconnect.com/*"
-# zone_name = "windyconnect.com"
+# Custom domain api.windyconnect.com is attached via Cloudflare's Workers
+# Custom Domains API (auto-creates DNS + SSL + service binding). Managed
+# outside wrangler.toml because Custom Domains supersede [[routes]] for
+# this Worker. See docs/dns-plan.md for the cert id + provisioning record.
 
 [env.staging]
 name = "windy-connect-orchestrator-staging"

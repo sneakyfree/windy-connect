@@ -7,8 +7,7 @@ Implements the CLI side of the device-code OAuth flow (RFC 8628):
   3. Poll POST /v1/device/poll every `interval` seconds until 200 with bundle
   4. Return the parsed Bundle
 
-Override the orchestrator URL via ``$WINDY_CONNECT_API_URL`` (defaults to the
-workers.dev URL until ``api.windyconnect.com`` is mapped).
+Override the orchestrator URL via ``$WINDY_CONNECT_API_URL``.
 """
 
 from __future__ import annotations
@@ -23,7 +22,7 @@ from rich.console import Console
 
 from .bundle import Bundle
 
-DEFAULT_API_URL = "https://windy-connect-orchestrator.windyword.workers.dev"
+DEFAULT_API_URL = "https://api.windyconnect.com"
 MAX_POLL_SECONDS = 900  # match backend SESSION_TTL_SECONDS
 
 console = Console()

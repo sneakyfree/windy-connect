@@ -1,6 +1,6 @@
 # DNS plan — windyconnect.com
 
-**Status:** Zone live in Cloudflare, **0 DNS records as of 2026-05-20**.
+**Status:** Zone live in Cloudflare. `api.windyconnect.com` attached 2026-05-20 as a Workers Custom Domain (auto-creates DNS + edge cert + service binding to `windy-connect-orchestrator`). All other planned hostnames still pending their milestones.
 
 - Cloudflare zone ID: `1406c9a30756a386c7465c90877595f2`
 - Cloudflare account ID: `193b347aedeaafe35de0b5a534b2d9aa`
@@ -19,7 +19,7 @@
 | `www.windyconnect.com` | CNAME | apex | Conventional alias | M2 |
 | `get.windyconnect.com` | CNAME | R2 custom domain (`windy-connect-releases` bucket) | One-line installer: `curl https://get.windyconnect.com \| sh` serves the install script | M3 — installer drafted + R2 bucket created (pattern per [[reference_r2_desktop_distribution_pattern]]) |
 | `pair.windyconnect.com` | CNAME/A | Cloudflare Pages or orchestrator EC2 | Browser pairing flow page the CLI opens after Sign-in-with-Google | M4 — pairing page deployed |
-| `api.windyconnect.com` | A or CNAME | Orchestrator EC2 (TBD) | The `/agents/connect` OAuth orchestrator backend | M5 — orchestrator deployed |
+| `api.windyconnect.com` | **Workers Custom Domain** | `windy-connect-orchestrator` (Worker) | The OAuth orchestrator backend | ✅ **DONE 2026-05-20.** `cert_id=3badf8d0-9c60-49fe-b0d9-f3f9f25e5abb`, attachment id `5f0390d9f41a635e886c65c62bccc7f34db788e4`. Tested: `GET /healthz` → 200. Provisioned with `TheWindstormCloudflareGodToken` (`workers/domains` PUT). |
 
 ## Operational notes
 
