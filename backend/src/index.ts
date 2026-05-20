@@ -22,6 +22,7 @@ import { handleDeviceInit, handleDevicePoll, handlePairSubmit } from "./routes/d
 import { handleGoogleStart, handleGoogleCallback } from "./routes/oauth";
 import { handleBundleRefresh } from "./routes/bundle";
 import { handlePair } from "./routes/pair";
+import { handleSkillsIndex } from "./routes/skills";
 
 export interface Env {
   DEVICE_CODES?: KVNamespace;
@@ -60,6 +61,9 @@ export default {
       }
       if (url.pathname === "/healthz") {
         return json({ ok: true, ts: new Date().toISOString() });
+      }
+      if (url.pathname === "/.well-known/skills/index.json" && req.method === "GET") {
+        return handleSkillsIndex(req, env);
       }
       if (url.pathname === "/pair" && req.method === "GET") {
         return handlePair(req, env);

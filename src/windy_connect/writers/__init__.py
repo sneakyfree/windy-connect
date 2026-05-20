@@ -9,12 +9,14 @@ credentials in shared config files (use marker-bounded BlockEdits instead).
 from .base import BlockEdit, RemoveResult, WriteResult, Writer
 from .claude_code import ClaudeCodeWriter
 from .generic import GenericWriter
+from .hermes import HermesWriter
 from .openclaw import OpenClawWriter
 
 __all__ = [
     "BlockEdit",
     "ClaudeCodeWriter",
     "GenericWriter",
+    "HermesWriter",
     "OpenClawWriter",
     "RemoveResult",
     "Writer",
@@ -24,6 +26,7 @@ __all__ = [
 
 REGISTRY: dict[str, type[Writer]] = {
     "openclaw": OpenClawWriter,
+    "hermes": HermesWriter,
     "claude_code": ClaudeCodeWriter,
     "generic": GenericWriter,
 }

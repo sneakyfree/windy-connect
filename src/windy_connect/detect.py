@@ -70,6 +70,30 @@ def detect_openclaw() -> AgentInfo:
     )
 
 
+def detect_hermes() -> AgentInfo:
+    """Look for Hermes Agent — checks ``$HERMES_HOME`` / ``~/.hermes`` and the ``hermes`` binary.
+
+    Nous Research's Hermes Agent ships its config directly under ``~/.hermes/`` rather
+    than the XDG dir; the env-var override lets fleet machines relocate it.
+    """
+    hermes_root = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
+    binary = _which("hermes")
+
+    detected = hermes_root.is_dir() or binary is not None
+    notes = None
+    if binary and not hermes_root.is_dir():
+        notes = "CLI present but no config dir yet; will be created on first run."
+
+    return AgentInfo(
+        slug="hermes",
+        display_name="Hermes Agent",
+        detected=detected,
+        install_path=hermes_root if hermes_root.is_dir() else None,
+        binary_path=binary,
+        notes=notes,
+    )
+
+
 def detect_claude_code() -> AgentInfo:
     """Look for Claude Code — checks ``~/.claude`` and the ``claude`` binary."""
     claude_config = Path.home() / ".claude"
@@ -120,6 +144,7 @@ def detect_all() -> list[AgentInfo]:
     """Run every detector. Returns the list in stable order for UI presentation."""
     return [
         detect_openclaw(),
+        detect_hermes(),
         detect_claude_code(),
         detect_himalaya(),
         detect_generic(),

@@ -11,6 +11,7 @@ from windy_connect.writers import (
     BlockEdit,
     ClaudeCodeWriter,
     GenericWriter,
+    HermesWriter,
     OpenClawWriter,
     Writer,
     WriteResult,
@@ -163,9 +164,101 @@ def test_openclaw_secrets_are_0600(sandbox: Path, credentialed_bundle: Bundle) -
 
 
 def test_registry_contains_all_writers() -> None:
-    assert set(REGISTRY.keys()) == {"openclaw", "claude_code", "generic"}
+    assert set(REGISTRY.keys()) == {"openclaw", "hermes", "claude_code", "generic"}
     for cls in REGISTRY.values():
         assert issubclass(cls, Writer)
+
+
+# ---------- HermesWriter ----------
+
+
+def test_hermes_dry_run_touches_no_files(sandbox: Path, credentialed_bundle: Bundle) -> None:
+    writer = HermesWriter(dry_run=True)
+    result = writer.write(credentialed_bundle)
+    assert result.error is None
+    assert len(result.block_edits) == 1
+    assert not (sandbox / ".hermes" / ".env").exists()
+
+
+def test_hermes_writes_marker_block_to_env(
+    sandbox: Path, credentialed_bundle: Bundle
+) -> None:
+    writer = HermesWriter()
+    result = writer.write(credentialed_bundle)
+    env_path = sandbox / ".hermes" / ".env"
+    assert env_path.exists()
+    text = env_path.read_text()
+    assert "# --- windy-connect:begin ---" in text
+    assert "# --- windy-connect:end ---" in text
+    assert "WINDY_MIND_API_KEY=" in text
+    assert "WINDY_MIND_BASE_URL=" in text
+    assert "EMAIL_ADDRESS=" in text
+    assert "IMAP_HOST=" in text
+    assert "SMTP_HOST=" in text
+    assert "WINDY_CHAT_HOMESERVER=" in text
+    assert "WINDY_ETERNITAS_EPT=" in text
+    assert any(
+        e.file_path == env_path and "windy-connect" in e.marker_start
+        for e in result.block_edits
+    )
+
+
+def test_hermes_chat_flagged_as_skipped_for_non_native_use(
+    sandbox: Path, credentialed_bundle: Bundle
+) -> None:
+    result = HermesWriter().write(credentialed_bundle)
+    assert any("Hermes has no native Matrix" in s for s in result.skipped)
+
+
+def test_hermes_env_is_idempotent(sandbox: Path, credentialed_bundle: Bundle) -> None:
+    writer = HermesWriter()
+    writer.write(credentialed_bundle)
+    writer.write(credentialed_bundle)
+    text = (sandbox / ".hermes" / ".env").read_text()
+    assert text.count("# --- windy-connect:begin ---") == 1
+
+
+def test_hermes_preserves_user_env_vars(
+    sandbox: Path, credentialed_bundle: Bundle
+) -> None:
+    env_path = sandbox / ".hermes" / ".env"
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    env_path.write_text('OPENROUTER_API_KEY="user-owned-key"\n')
+    HermesWriter().write(credentialed_bundle)
+    text = env_path.read_text()
+    assert 'OPENROUTER_API_KEY="user-owned-key"' in text
+    assert "# --- windy-connect:begin ---" in text
+
+
+def test_hermes_remove_strips_block_keeps_user_env(
+    sandbox: Path, credentialed_bundle: Bundle
+) -> None:
+    env_path = sandbox / ".hermes" / ".env"
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    env_path.write_text('OPENROUTER_API_KEY="user-owned-key"\n')
+    writer = HermesWriter()
+    result = writer.write(credentialed_bundle)
+    writer.remove(result)
+    text = env_path.read_text()
+    assert 'OPENROUTER_API_KEY="user-owned-key"' in text
+    assert "# --- windy-connect:begin ---" not in text
+    assert "WINDY_MIND_API_KEY=" not in text
+
+
+def test_hermes_env_is_0600(sandbox: Path, credentialed_bundle: Bundle) -> None:
+    HermesWriter().write(credentialed_bundle)
+    env_path = sandbox / ".hermes" / ".env"
+    assert env_path.stat().st_mode & 0o777 == 0o600
+
+
+def test_hermes_honors_hermes_home_env_var(
+    sandbox: Path, credentialed_bundle: Bundle, monkeypatch
+) -> None:
+    relocated = sandbox / "fleet-hermes-root"
+    monkeypatch.setenv("HERMES_HOME", str(relocated))
+    HermesWriter().write(credentialed_bundle)
+    assert (relocated / ".env").exists()
+    assert not (sandbox / ".hermes" / ".env").exists()
 
 
 def test_dry_run_remove_does_not_touch_files(
