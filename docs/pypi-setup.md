@@ -7,16 +7,24 @@ needed once the one-time PyPI setup below is done.
 ## Status
 
 - ✅ `pyproject.toml` build config — sdist + wheel build cleanly (24 KB
-  sdist after node_modules exclusions; verified locally 2026-05-20)
+  sdist after node_modules exclusions; verified 2026-05-20)
 - ✅ `.github/workflows/release.yml` — tag-triggered publish workflow
-- ✅ PyPI account — `sneakyfree` (already exists; one existing project
-  `windyfly` published Apr 1 2026; documented in lockbox 2026-05-20)
-- ⏳ Trusted Publisher registration — **Grant TODO** (~2 min)
-- ⏳ First release tag — **after Trusted Publisher registration**
-- ⏳ Flip `PYPI_PUBLISHED="true"` in `installer/install.sh` — **after
-  first successful release**
+- ✅ PyPI account — `sneakyfree` (lockbox documented 2026-05-20)
+- ✅ Trusted Publisher registration — done 2026-05-20 (env=Any matches
+  our `environment: pypi` claim; verified by successful re-run of run
+  26187222167 after initial `invalid-publisher` failure)
+- ✅ First release tag — `v0.1.0` pushed 2026-05-20
+- ✅ Published — `windy_connect-0.1.0` live at https://pypi.org/p/windy-connect
+  (sdist + wheel + PEP 740 sigstore attestations)
+- ✅ Installer flag — `PYPI_PUBLISHED="true"` flipped 2026-05-20
 
-## One-time setup (Grant, ~3 min)
+## Re-cutting future releases
+
+1. Bump `version` in `pyproject.toml` on main
+2. `git tag v<version> && git push origin v<version>`
+3. Watch the workflow in the Actions tab — publish + GitHub Release happen automatically
+
+## Original one-time setup (kept for reference)
 
 ### 1. Register windy-connect as a pending publisher
 

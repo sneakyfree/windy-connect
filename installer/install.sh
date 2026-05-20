@@ -18,7 +18,7 @@ set -euo pipefail
 
 REPO="sneakyfree/windy-connect"
 PKG_NAME="windy-connect"
-PYPI_PUBLISHED="false"  # flip to "true" once windy-connect is on PyPI
+PYPI_PUBLISHED="true"  # windy-connect 0.1.0 went live 2026-05-20
 GIT_REF="main"
 ACTION="install"
 
