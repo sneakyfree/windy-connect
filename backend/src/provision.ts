@@ -1,0 +1,254 @@
+/**
+ * Bundle provisioner — fans out to Eternitas / Stalwart / Synapse / Mind and
+ * composes their responses into an Eternitas Agent Credentials Bundle (v1).
+ *
+ * Each upstream call is gated by ENABLE_REAL_PROVISIONING. When that's "false"
+ * (default for the pre-launch period) the provisioner returns a deterministic
+ * sandbox bundle whose values are clearly marked "sandbox-" so they're easy to
+ * spot in agent logs. Once each upstream is wired and tested independently,
+ * flip ENABLE_REAL_PROVISIONING=true and the real path takes over.
+ */
+
+import type { Env } from "./index";
+import type {
+  Bundle,
+  EternitasBlock,
+  MailBlock,
+  MatrixChat,
+  OpenAICompatibleMind,
+  Tier,
+} from "./types";
+
+const BUNDLE_TTL_DAYS = 30;
+
+interface ProvisionInput {
+  tier: Tier;
+  google_email: string;
+  google_sub: string;
+}
+
+export async function provisionBundle(env: Env, input: ProvisionInput): Promise<Bundle> {
+  const real = env.ENABLE_REAL_PROVISIONING === "true";
+  const now = new Date();
+  const expires = new Date(now.getTime() + BUNDLE_TTL_DAYS * 24 * 3600 * 1000);
+
+  const eternitas = input.tier === "credentialed"
+    ? await provisionEternitas(env, input, real)
+    : undefined;
+
+  const [windy_mail, windy_chat, windy_mind] = await Promise.all([
+    provisionMail(env, input, real),
+    provisionChat(env, input, real),
+    provisionMind(env, input, real),
+  ]);
+
+  return {
+    bundle_version: "1.0",
+    issuer: {
+      name: env.ISSUER_NAME,
+      url: env.ISSUER_URL,
+      icon: `${env.ISSUER_URL}/favicon.png`,
+    },
+    issued_at: now.toISOString(),
+    expires_at: expires.toISOString(),
+    refresh_url: `${env.ISSUER_URL.replace("//windyconnect", "//api.windyconnect")}/v1/bundle/refresh`,
+    eternitas,
+    windy_chat,
+    windy_mail,
+    windy_mind,
+    tier: input.tier,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Eternitas — mints an EPT via the auto-hatch endpoint.
+//
+// REAL endpoint (TODO verify path): POST {ETERNITAS_API_URL}/api/v1/auto-hatch
+//   body: { google_sub, google_email, operator_kind: "self_registered" }
+//   returns: { ept, passport, operator_id, clearance_level, integrity_band }
+// Reference: sneakyfree/eternitas routes/bots.py:95-200 per project memory.
+// ---------------------------------------------------------------------------
+
+async function provisionEternitas(
+  env: Env,
+  input: ProvisionInput,
+  real: boolean,
+): Promise<EternitasBlock> {
+  if (real) {
+    const res = await fetch(`${env.ETERNITAS_API_URL}/api/v1/auto-hatch`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        google_sub: input.google_sub,
+        google_email: input.google_email,
+        operator_kind: "self_registered",
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(`eternitas auto-hatch failed: ${res.status} ${await res.text()}`);
+    }
+    const data = (await res.json()) as Partial<EternitasBlock>;
+    return {
+      ept: data.ept!,
+      passport: data.passport!,
+      operator_id: data.operator_id!,
+      clearance_level: data.clearance_level ?? "registered",
+      integrity_band: data.integrity_band ?? "fair",
+      jwks_url: `${env.ETERNITAS_API_URL}/.well-known/eternitas-keys`,
+      revocation_check_url: `${env.ETERNITAS_API_URL}/api/v1/passports/${data.passport}/status`,
+    };
+  }
+
+  // Sandbox bundle — clearly marked
+  const sub = input.google_sub.slice(0, 8);
+  return {
+    ept: `sandbox-ept-${sub}`,
+    passport: `ET26-SBOX-${sub.toUpperCase().slice(0, 4)}`,
+    operator_id: `op_sandbox_${sub}`,
+    clearance_level: "registered",
+    integrity_band: "fair",
+    jwks_url: `${env.ETERNITAS_API_URL}/.well-known/eternitas-keys`,
+    revocation_check_url: `${env.ETERNITAS_API_URL}/api/v1/passports/sandbox/status`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Stalwart Mail — creates a JMAP principal + IMAP/SMTP login.
+//
+// REAL endpoint: PUT {STALWART_ADMIN_URL}/api/principal/<localpart>
+//   Basic auth admin:STALWART_ADMIN_PASS
+//   body: { name, secrets, type: "individual", emails: [...] }
+// Stalwart's docs: https://stalw.art/docs/management/principal/individual
+// ---------------------------------------------------------------------------
+
+async function provisionMail(
+  env: Env,
+  input: ProvisionInput,
+  real: boolean,
+): Promise<MailBlock> {
+  const localpart = sanitizeLocalpart(input.google_email);
+  const address = `${localpart}@windymail.ai`;
+  const password = real ? randomPassword(24) : `sandbox-pass-${localpart}`;
+
+  if (real) {
+    if (!env.STALWART_ADMIN_PASS) {
+      throw new Error("STALWART_ADMIN_PASS secret is unset");
+    }
+    const auth = "Basic " + btoa(`${env.STALWART_ADMIN_USER}:${env.STALWART_ADMIN_PASS}`);
+    const res = await fetch(`${env.STALWART_ADMIN_URL}/api/principal/${encodeURIComponent(localpart)}`, {
+      method: "PUT",
+      headers: { authorization: auth, "content-type": "application/json" },
+      body: JSON.stringify({
+        type: "individual",
+        name: localpart,
+        secrets: [password],
+        emails: [address],
+        description: `Windy Connect agent for ${input.google_email}`,
+      }),
+    });
+    if (!res.ok && res.status !== 409) { // 409 = already exists, fine for re-pair
+      throw new Error(`stalwart provision failed: ${res.status} ${await res.text()}`);
+    }
+  }
+
+  return {
+    address,
+    display_name: localpart,
+    imap: {
+      host: "imap.windymail.ai",
+      port: 993,
+      tls: "implicit",
+      username: address,
+      password,
+    },
+    smtp: {
+      host: "smtp.windymail.ai",
+      port: 587,
+      tls: "starttls",
+      username: address,
+      password,
+    },
+    jmap: {
+      endpoint: "https://jmap.windymail.ai/jmap",
+      account_id: real ? `u_${localpart}` : `u_sandbox_${localpart}`,
+      username: address,
+      password,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Synapse / Matrix — creates a user + minted access token.
+//
+// REAL endpoint: PUT {SYNAPSE_BASE_URL}/_synapse/admin/v2/users/@<localpart>:windychat.ai
+//   Authorization: Bearer SYNAPSE_ADMIN_TOKEN
+// Followed by: POST .../_synapse/admin/v1/users/.../login to mint an access_token.
+// TODO: SYNAPSE_ADMIN_TOKEN is not yet in kit-army-config — bootstrap one and add.
+// ---------------------------------------------------------------------------
+
+async function provisionChat(
+  env: Env,
+  input: ProvisionInput,
+  real: boolean,
+): Promise<MatrixChat> {
+  const localpart = sanitizeLocalpart(input.google_email);
+  const matrix_user_id = `@${localpart}:windychat.ai`;
+
+  if (real) {
+    // TODO: real provisioning blocked until Synapse admin token is captured.
+    throw new Error(
+      "synapse provisioning not yet wired — set SYNAPSE_ADMIN_TOKEN and implement provision.ts:provisionChat",
+    );
+  }
+
+  return {
+    kind: "matrix",
+    homeserver: "https://matrix.windychat.ai",
+    matrix_user_id,
+    access_token: `syt_sandbox_${localpart}`,
+    device_id: "WINDY_CONNECT_SANDBOX",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Windy Mind — issue a per-user OpenAI-compatible API key.
+//
+// TODO: Mind needs an admin /keys endpoint that issues scoped keys (rate-limit
+// tied to tier). Currently Mind has a single shared key. Track in mind#TBD.
+// ---------------------------------------------------------------------------
+
+async function provisionMind(
+  env: Env,
+  input: ProvisionInput,
+  real: boolean,
+): Promise<OpenAICompatibleMind> {
+  if (real) {
+    throw new Error(
+      "mind provisioning not yet wired — Mind needs per-user key issuance endpoint",
+    );
+  }
+  const localpart = sanitizeLocalpart(input.google_email);
+  return {
+    kind: "openai-compatible",
+    base_url: "https://api.windymind.ai/v1",
+    api_key: `wm_sandbox_${localpart}`,
+    default_model: "windy-mind-auto",
+    models_endpoint: "https://api.windymind.ai/v1/models",
+  };
+}
+
+// ---------------------------------------------------------------------------
+
+function sanitizeLocalpart(email: string): string {
+  const local = email.split("@")[0] ?? "agent";
+  return local.toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 40) || "agent";
+}
+
+function randomPassword(len: number): string {
+  const alphabet = "ABCDEFGHJKMNPQRSTVWXYZabcdefghjkmnpqrstvwxyz23456789";
+  const buf = new Uint8Array(len);
+  crypto.getRandomValues(buf);
+  let s = "";
+  for (let i = 0; i < len; i++) s += alphabet[buf[i]! % alphabet.length];
+  return s;
+}

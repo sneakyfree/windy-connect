@@ -1,0 +1,19 @@
+{
+  "name": "windy-connect-orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare Worker that mints Eternitas Agent Credentials Bundles via Sign-in-with-Google + device-code flow.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:staging": "wrangler deploy --env staging",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240821.1",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5",
+    "wrangler": "^3.78.0"
+  }
+}

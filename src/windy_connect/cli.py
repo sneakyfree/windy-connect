@@ -24,6 +24,7 @@ from . import __version__, state as state_mod
 from ._mock_bundle import make_mock_bundle
 from .bundle import Bundle
 from .detect import AgentInfo, detect_all
+from .orchestrator import OrchestratorError, api_url, connect_via_orchestrator
 from .state import State
 from .writers import REGISTRY, RemoveResult, WriteResult
 
@@ -119,18 +120,20 @@ def connect(
     else:
         tier = _prompt_eternitas()
 
-    # 4. Sign-in method (stubbed — placeholder for OAuth flow)
-    if not mock:
-        console.print(
-            "[red]The OAuth orchestrator backend isn't deployed yet.[/] "
-            "Re-run with [bold]--mock[/] to exercise the full local flow."
-        )
-        raise typer.Exit(1)
+    # 4. Fetch / synthesize bundle
+    if mock:
+        bundle = make_mock_bundle(tier=tier)
+    else:
+        console.print(f"[dim]Using orchestrator: {api_url()}[/]")
+        try:
+            bundle = connect_via_orchestrator(tier=tier)
+        except OrchestratorError as exc:
+            console.print(f"[red]Pairing failed:[/] {exc}")
+            raise typer.Exit(1) from exc
 
-    # 5. Fetch / synthesize bundle
-    bundle = make_mock_bundle(tier=tier)
+    source = "mock" if mock else "orchestrator"
     console.print(
-        f"[green]✓[/] Bundle received (mock): "
+        f"[green]✓[/] Bundle received ({source}): "
         f"tier=[bold]{bundle.tier}[/], "
         f"passport=[bold]{bundle.eternitas.passport if bundle.eternitas else 'N/A'}[/], "
         f"mail=[bold]{bundle.windy_mail.address if bundle.windy_mail else 'N/A'}[/]"

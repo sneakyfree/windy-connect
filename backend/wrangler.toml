@@ -1,0 +1,43 @@
+name = "windy-connect-orchestrator"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+account_id = "193b347aedeaafe35de0b5a534b2d9aa"
+
+# KV namespace for device-code → bundle correlation (RFC 8628).
+# Created via: wrangler kv:namespace create DEVICE_CODES
+# Then paste the returned id below.
+# kv_namespaces = [
+#   { binding = "DEVICE_CODES", id = "REPLACE_AFTER_CREATE" }
+# ]
+
+# Vars are public; secrets are set via `wrangler secret put`.
+[vars]
+ETERNITAS_API_URL = "https://api.eternitas.ai"
+STALWART_ADMIN_URL = "https://mail.windymail.ai"
+STALWART_ADMIN_USER = "admin"
+ENABLE_REAL_PROVISIONING = "false"
+ISSUER_NAME = "windy"
+ISSUER_URL = "https://windyconnect.com"
+
+# Secrets to set with `wrangler secret put <NAME>`:
+#   STALWART_ADMIN_PASS         (from kit-army-config: <REDACTED-see-kit-army-config>)
+#   GOOGLE_OAUTH_CLIENT_ID      (TODO: new GCP project "windy-connect-oauth")
+#   GOOGLE_OAUTH_CLIENT_SECRET  (TODO)
+#   SYNAPSE_ADMIN_TOKEN         (TODO: not yet in lockbox)
+#   MIND_ADMIN_TOKEN            (TODO: Mind needs per-user key issuance endpoint)
+
+# Custom-domain route — uncomment AFTER api.windyconnect.com DNS+route is set
+# via the god token. The workers.dev URL works without this.
+# [[routes]]
+# pattern = "api.windyconnect.com/*"
+# zone_name = "windyconnect.com"
+
+[env.staging]
+name = "windy-connect-orchestrator-staging"
+[env.staging.vars]
+ETERNITAS_API_URL = "https://api.eternitas.ai"
+STALWART_ADMIN_URL = "https://mail.windymail.ai"
+STALWART_ADMIN_USER = "admin"
+ENABLE_REAL_PROVISIONING = "false"
+ISSUER_NAME = "windy"
+ISSUER_URL = "https://windyconnect.com"

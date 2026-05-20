@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from windy_connect.cli import app
@@ -81,12 +82,16 @@ def test_mutually_exclusive_eternitas_flags(sandbox: Path) -> None:
     assert "mutually exclusive" in result.stdout
 
 
-def test_connect_without_mock_exits_with_message(sandbox: Path) -> None:
+def test_connect_without_mock_calls_orchestrator(
+    sandbox: Path, monkeypatch: "pytest.MonkeyPatch"
+) -> None:
+    """When --mock is omitted, the CLI calls the orchestrator. A bad URL should fail cleanly."""
+    monkeypatch.setenv("WINDY_CONNECT_API_URL", "http://127.0.0.1:1")  # closed port
     result = runner.invoke(
         app, ["connect", "--with-eternitas"], input="all\n"
     )
     assert result.exit_code == 1
-    assert "orchestrator backend isn't deployed" in result.stdout
+    assert "Pairing failed" in result.stdout
 
 
 def test_version() -> None:

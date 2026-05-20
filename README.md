@@ -50,13 +50,22 @@ The Windy ecosystem follows the **two-tier-everywhere** principle (see [ADR-052]
 
 ```
 windy-connect/
-  src/windy_connect/      # The Python CLI (published to PyPI as windy-connect)
+  src/windy_connect/      # Python CLI (published to PyPI as windy-connect)
+  backend/                # Cloudflare Worker orchestrator (TypeScript)
+  tests/                  # pytest suite for the CLI
   docs/
     bundle-spec-v1.md     # The Eternitas Agent Credentials Bundle spec
     adr/                  # Architectural decision records
+    dns-plan.md
   pyproject.toml
   README.md
 ```
+
+## Orchestrator backend
+
+The CLI talks to a stateless Cloudflare Worker that mints bundles via Sign-in-with-Google + the device-code OAuth flow (RFC 8628). See [backend/README.md](backend/README.md) for routes, deployment, and what's currently stubbed vs real.
+
+Point the CLI at a non-default orchestrator with `WINDY_CONNECT_API_URL=https://your-orchestrator/...` — useful for staging or local `wrangler dev`.
 
 ## Status
 
