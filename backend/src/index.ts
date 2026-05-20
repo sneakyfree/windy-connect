@@ -23,6 +23,8 @@ import { handleGoogleStart, handleGoogleCallback } from "./routes/oauth";
 import { handleBundleRefresh } from "./routes/bundle";
 import { handlePair } from "./routes/pair";
 import { handleSkillsIndex, handleSkillMd } from "./routes/skills";
+// @ts-expect-error wrangler text-loader inlines the install script
+import installSh from "../../installer/install.sh";
 
 export interface Env {
   DEVICE_CODES?: KVNamespace;
@@ -59,6 +61,18 @@ export default {
     }
 
     try {
+      // get.windyconnect.com → serve installer.
+      // `curl -fsSL https://get.windyconnect.com | sh` hits "/" so we return
+      // the script regardless of path (curl-pipe ignores Location: anyway).
+      if (url.hostname.startsWith("get.")) {
+        return new Response(installSh as string, {
+          status: 200,
+          headers: {
+            "content-type": "text/x-shellscript; charset=utf-8",
+            "cache-control": "public, max-age=300",
+          },
+        });
+      }
       if (url.pathname === "/" || url.pathname === "") {
         return Response.redirect(new URL("/pair", url).toString(), 302);
       }

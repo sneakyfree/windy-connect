@@ -9,7 +9,7 @@ account_id = "193b347aedeaafe35de0b5a534b2d9aa"
 # public/private.
 [[rules]]
 type = "Text"
-globs = ["**/*.md"]
+globs = ["**/*.md", "**/*.sh"]
 fallthrough = true
 
 # Device-code session store. Tried Workers KV first but none of the lockbox
