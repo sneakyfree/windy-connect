@@ -2,8 +2,8 @@
 
 Subcommands:
     windy connect      — interactive pairing: provision bundle, write agent configs
-    windy status       — show current connection state (TODO: implement against ~/.windy/state.json)
-    windy disconnect   — remove credentials (TODO)
+    windy status       — show current connection state (reads ~/.windy/state.json)
+    windy disconnect   — reverse what connect wrote and delete state
     windy version
 
 Currently the OAuth orchestrator backend is stubbed. Pass ``--mock`` to
@@ -12,17 +12,20 @@ Currently the OAuth orchestrator backend is stubbed. Pass ``--mock`` to
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
-from . import __version__
+from . import __version__, state as state_mod
 from ._mock_bundle import make_mock_bundle
 from .bundle import Bundle
 from .detect import AgentInfo, detect_all
-from .writers import REGISTRY, WriteResult
+from .state import State
+from .writers import REGISTRY, RemoveResult, WriteResult
 
 app = typer.Typer(
     name="windy",
@@ -69,6 +72,11 @@ def connect(
         "--dry-run",
         help="Run detection + prompts + writers, but do not actually write files.",
     ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Overwrite an existing connection without prompting.",
+    ),
 ) -> None:
     """Pair this machine's AI agent(s) with the Windy ecosystem."""
     if with_eternitas and no_eternitas:
@@ -82,6 +90,16 @@ def connect(
             border_style="cyan",
         )
     )
+
+    # 0. Detect prior state — refuse to silently overwrite
+    existing = state_mod.load()
+    if existing is not None and not force and not dry_run:
+        _print_existing_state_summary(existing)
+        if not Confirm.ask(
+            "[yellow]Reconnect and overwrite the current connection?[/]", default=False
+        ):
+            console.print("Aborted. Run [bold]windy disconnect[/] first if you want a clean slate.")
+            raise typer.Exit(0)
 
     # 1. Detect installed agents
     detected = detect_all()
@@ -121,7 +139,18 @@ def connect(
     # 6. Write configs for each selected agent
     results = _apply_bundle(bundle, selected, dry_run=dry_run)
 
-    # 7. Summary
+    # 7. Persist state (skip in dry-run)
+    if not dry_run:
+        successful = [r for r in results if r.error is None]
+        state_mod.save(
+            State(
+                connected_at=datetime.now(UTC),
+                bundle=bundle,
+                writes=successful,
+            )
+        )
+
+    # 8. Summary
     _print_write_summary(results, dry_run=dry_run)
     console.print(
         "[bold green]🎉 Done.[/] Try asking your agent: "
@@ -132,15 +161,121 @@ def connect(
 @app.command()
 def status() -> None:
     """Show current Windy connection state for detected agents."""
-    console.print("[bold cyan]windy status[/] — not yet implemented")
-    raise typer.Exit(1)
+    state = state_mod.load()
+    if state is None:
+        console.print(
+            "[yellow]Not connected.[/] Run [bold]windy connect[/] to pair this machine."
+        )
+        raise typer.Exit(1)
+
+    b = state.bundle
+    expiry_color = "red" if b.is_expired else "green"
+
+    header = Table.grid(padding=(0, 2))
+    header.add_column(style="bold")
+    header.add_column()
+    header.add_row("Tier:", f"[bold]{b.tier}[/]")
+    header.add_row("Issuer:", str(b.issuer.url))
+    header.add_row("Connected:", state.connected_at.isoformat(timespec="seconds"))
+    header.add_row("Issued:", b.issued_at.isoformat(timespec="seconds"))
+    header.add_row(
+        "Expires:",
+        f"[{expiry_color}]{b.expires_at.isoformat(timespec='seconds')}"
+        f"{' (EXPIRED)' if b.is_expired else ''}[/]",
+    )
+    if b.eternitas:
+        header.add_row("Passport:", f"[bold]{b.eternitas.passport}[/]")
+        header.add_row(
+            "Clearance / Integrity:",
+            f"{b.eternitas.clearance_level} / {b.eternitas.integrity_band}",
+        )
+    if b.windy_mail:
+        header.add_row("Mail:", b.windy_mail.address)
+    if b.windy_chat:
+        header.add_row("Matrix:", b.windy_chat.matrix_user_id)
+    if b.windy_mind:
+        header.add_row("Mind:", str(b.windy_mind.base_url))
+
+    console.print(Panel(header, title="Windy connection", border_style="cyan"))
+
+    table = Table(title="Per-agent writes")
+    table.add_column("Agent", style="bold")
+    table.add_column("Owned files")
+    table.add_column("Shared-file blocks")
+    table.add_column("Status")
+
+    for w in state.writes:
+        owned = "\n".join(str(p) for p in w.owned_files) or "—"
+        blocks = "\n".join(str(e.file_path) for e in w.block_edits) or "—"
+        missing: list[str] = []
+        for p in w.owned_files:
+            if not p.exists():
+                missing.append(f"missing: {p}")
+        for e in w.block_edits:
+            if not e.file_path.exists():
+                missing.append(f"missing: {e.file_path}")
+        status_cell = "[green]✓ ok[/]" if not missing else f"[red]{'; '.join(missing)}[/]"
+        table.add_row(w.agent_slug, owned, blocks, status_cell)
+
+    console.print(table)
 
 
 @app.command()
-def disconnect() -> None:
-    """Remove Windy credentials from detected agents."""
-    console.print("[bold cyan]windy disconnect[/] — not yet implemented")
-    raise typer.Exit(1)
+def disconnect(
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be removed."),
+) -> None:
+    """Remove Windy credentials from detected agents and delete state."""
+    state = state_mod.load()
+    if state is None:
+        console.print("[yellow]Not connected — nothing to disconnect.[/]")
+        raise typer.Exit(0)
+
+    _print_existing_state_summary(state)
+    if not yes and not dry_run:
+        if not Confirm.ask(
+            "[red]Remove all Windy credentials from this machine?[/]", default=False
+        ):
+            console.print("Aborted.")
+            raise typer.Exit(0)
+
+    results: list[RemoveResult] = []
+    for write in state.writes:
+        writer_cls = REGISTRY.get(write.agent_slug)
+        if writer_cls is None:
+            results.append(
+                RemoveResult(
+                    agent_slug=write.agent_slug,
+                    error=f"No writer registered for slug={write.agent_slug!r}",
+                )
+            )
+            continue
+        writer = writer_cls(dry_run=dry_run)
+        try:
+            results.append(writer.remove(write))
+        except Exception as exc:  # noqa: BLE001
+            results.append(RemoveResult(agent_slug=write.agent_slug, error=str(exc)))
+
+    if not dry_run:
+        state_mod.delete()
+
+    table = Table(title="Disconnect summary" + (" (--dry-run)" if dry_run else ""))
+    table.add_column("Agent", style="bold")
+    table.add_column("Files deleted")
+    table.add_column("Blocks stripped")
+    table.add_column("Notes")
+    for r in results:
+        files = "\n".join(str(p) for p in r.files_deleted) or "—"
+        blocks = "\n".join(str(e.file_path) for e in r.blocks_stripped) or "—"
+        if r.error:
+            notes = f"[red]ERROR: {r.error}[/]"
+        else:
+            notes = "\n".join(r.skipped) or "—"
+        table.add_row(r.agent_slug, files, blocks, notes)
+    console.print(table)
+
+    if not dry_run:
+        console.print("[bold green]Disconnected.[/]")
 
 
 @app.command()
@@ -160,13 +295,10 @@ def _print_detection_table(detected: list[AgentInfo]) -> None:
     table.add_column("Status")
     table.add_column("Location")
     for a in detected:
-        if a.detected:
-            status = "[green]✓ found[/]"
-        else:
-            status = "[dim]not found[/]"
+        status_cell = "[green]✓ found[/]" if a.detected else "[dim]not found[/]"
         table.add_row(
             a.display_name,
-            status,
+            status_cell,
             str(a.install_path or a.binary_path or "—"),
         )
     console.print(table)
@@ -226,7 +358,7 @@ def _apply_bundle(
         writer = writer_cls(dry_run=dry_run)
         try:
             results.append(writer.write(bundle))
-        except Exception as exc:  # noqa: BLE001 — surface the error verbatim
+        except Exception as exc:  # noqa: BLE001
             results.append(WriteResult(agent_slug=agent.slug, error=str(exc)))
     return results
 
@@ -238,13 +370,26 @@ def _print_write_summary(results: list[WriteResult], *, dry_run: bool) -> None:
     table.add_column("Files")
     table.add_column("Skipped")
     for r in results:
-        files = "\n".join(str(p) for p in r.files_written) if r.files_written else "—"
+        files = "\n".join(str(p) for p in r.files_touched) if r.files_touched else "—"
         if r.error:
             skipped = f"[red]ERROR: {r.error}[/]"
         else:
             skipped = "\n".join(r.skipped) if r.skipped else "—"
         table.add_row(r.agent_slug, files, skipped)
     console.print(table)
+
+
+def _print_existing_state_summary(state: State) -> None:
+    b = state.bundle
+    console.print(
+        Panel(
+            f"Currently connected as [bold]{b.eternitas.passport if b.eternitas else b.tier}[/] "
+            f"since {state.connected_at.isoformat(timespec='seconds')}\n"
+            f"Mail: {b.windy_mail.address if b.windy_mail else 'N/A'}",
+            title="Existing connection",
+            border_style="yellow",
+        )
+    )
 
 
 if __name__ == "__main__":

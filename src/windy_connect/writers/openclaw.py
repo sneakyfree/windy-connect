@@ -4,14 +4,13 @@ Per the OpenClaw audit (2026-05-20):
 - Matrix channel reads ``MATRIX_HOMESERVER`` / ``MATRIX_USER_ID`` / ``MATRIX_ACCESS_TOKEN``
   env vars resolved through the central secrets module.
 - Mail is delegated to Himalaya (config at ``~/.config/himalaya/config.toml``); we
-  append a ``[accounts.windy]`` block.
+  insert a marker-bounded ``[accounts.windy]`` block so ``windy disconnect`` can
+  cleanly remove only our block from a shared config file.
 - Mind is wired as an OpenAI-compatible provider via a ~30-line plugin manifest
   modeled on ``extensions/openrouter/openclaw.plugin.json``; we write the manifest
   and set ``WINDY_MIND_API_KEY``.
 
-The writer chooses an OpenClaw secrets path (``$XDG_CONFIG_HOME/openclaw/secrets/windy.env``)
-that OpenClaw's secret loader picks up automatically; we do not edit OpenClaw's
-internal config TOML directly.
+Owned files go under ``$XDG_CONFIG_HOME/openclaw/`` (writer creates the dir).
 """
 
 from __future__ import annotations
@@ -22,7 +21,10 @@ import textwrap
 from pathlib import Path
 
 from ..bundle import Bundle
-from .base import WriteResult, Writer
+from .base import BlockEdit, WriteResult, Writer
+
+HIMALAYA_MARKER_START = "# --- windy-connect:begin ---"
+HIMALAYA_MARKER_END = "# --- windy-connect:end ---"
 
 
 class OpenClawWriter(Writer):
@@ -44,7 +46,7 @@ class OpenClawWriter(Writer):
             if bundle.windy_chat.default_room_id:
                 env_lines.append(f'WINDY_CHAT_DEFAULT_ROOM="{bundle.windy_chat.default_room_id}"')
             env_path = config_root / "secrets" / "windy-chat.env"
-            self._write(env_path, "\n".join(env_lines) + "\n", result)
+            self._write_owned(env_path, "\n".join(env_lines) + "\n", result)
         else:
             result.skipped.append("windy_chat: no Matrix block in bundle")
 
@@ -58,15 +60,15 @@ class OpenClawWriter(Writer):
                 "api": "openai-responses",
             }
             manifest_path = config_root / "extensions" / "windy-mind" / "openclaw.plugin.json"
-            self._write(manifest_path, json.dumps(manifest, indent=2) + "\n", result)
+            self._write_owned(manifest_path, json.dumps(manifest, indent=2) + "\n", result)
 
             env_path = config_root / "secrets" / "windy-mind.env"
             content = f'WINDY_MIND_API_KEY="{bundle.windy_mind.api_key}"\n'
-            self._write(env_path, content, result)
+            self._write_owned(env_path, content, result)
         else:
             result.skipped.append("windy_mind: no openai-compatible block in bundle")
 
-        # --- Mail (via Himalaya) ---
+        # --- Mail (via Himalaya — shared config, marker block) ---
         if bundle.windy_mail:
             himalaya_path = (
                 Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
@@ -74,7 +76,13 @@ class OpenClawWriter(Writer):
                 / "config.toml"
             )
             block = self._himalaya_account_block(bundle)
-            self._append_or_replace_himalaya_block(himalaya_path, block, result)
+            self._append_or_replace_block(
+                himalaya_path,
+                block,
+                HIMALAYA_MARKER_START,
+                HIMALAYA_MARKER_END,
+                result,
+            )
         else:
             result.skipped.append("windy_mail: no mail block in bundle")
 
@@ -82,7 +90,7 @@ class OpenClawWriter(Writer):
 
     def _himalaya_account_block(self, bundle: Bundle) -> str:
         m = bundle.windy_mail
-        assert m is not None  # checked by caller
+        assert m is not None
         imap_user = m.imap.username if m.imap else m.address
         imap_pass = m.imap.password if m.imap else ""
         imap_host = m.imap.host if m.imap else ""
@@ -91,7 +99,7 @@ class OpenClawWriter(Writer):
         smtp_port = m.smtp.port if m.smtp else 587
         return textwrap.dedent(
             f"""\
-            # --- windy-connect:begin ---
+            {HIMALAYA_MARKER_START}
             [accounts.windy]
             email = "{m.address}"
             display-name = "{m.display_name or ''}"
@@ -106,32 +114,42 @@ class OpenClawWriter(Writer):
             smtp.port = {smtp_port}
             smtp.login = "{imap_user}"
             smtp.auth.passwd.cmd = "echo '{imap_pass}'"
-            # --- windy-connect:end ---
+            {HIMALAYA_MARKER_END}
             """
         )
 
-    def _append_or_replace_himalaya_block(
-        self, path: Path, block: str, result: WriteResult
+    def _append_or_replace_block(
+        self,
+        path: Path,
+        block: str,
+        marker_start: str,
+        marker_end: str,
+        result: WriteResult,
     ) -> None:
-        existing = path.read_text() if path.exists() else ""
-        start, end = "# --- windy-connect:begin ---", "# --- windy-connect:end ---"
+        edit = BlockEdit(file_path=path, marker_start=marker_start, marker_end=marker_end)
+        if self.dry_run:
+            result.block_edits.append(edit)
+            return
 
-        if start in existing and end in existing:
-            pre, _, rest = existing.partition(start)
-            _, _, post = rest.partition(end)
+        existing = path.read_text() if path.exists() else ""
+
+        if marker_start in existing and marker_end in existing:
+            pre, _, rest = existing.partition(marker_start)
+            _, _, post = rest.partition(marker_end)
             new = pre + block + post.lstrip("\n")
         else:
             new = (existing.rstrip() + "\n\n" + block) if existing else block
 
-        self._write(path, new, result)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(new)
+        result.block_edits.append(edit)
 
-    def _write(self, path: Path, content: str, result: WriteResult) -> None:
+    def _write_owned(self, path: Path, content: str, result: WriteResult) -> None:
         if self.dry_run:
-            result.files_written.append(path)
+            result.owned_files.append(path)
             return
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
-        # Secrets files: tighten perms to 0600
         if "secrets" in path.parts or path.suffix == ".env":
             path.chmod(0o600)
-        result.files_written.append(path)
+        result.owned_files.append(path)

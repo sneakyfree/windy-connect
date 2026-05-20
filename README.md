@@ -60,12 +60,18 @@ windy-connect/
 
 ## Status
 
-**Pre-alpha — but the CLI runs end-to-end against a mock bundle.** Real OAuth orchestrator backend not yet deployed. Try it:
+**Pre-alpha — full local lifecycle works against a mock bundle.** Real OAuth orchestrator backend not yet deployed. Try it:
 
 ```bash
 pip install -e .
-windy connect --mock --dry-run
+windy connect --mock        # provision + write configs + persist state
+windy status                # show what's wired
+windy disconnect            # reverse everything cleanly
 ```
+
+State is persisted to `~/.windy/state.json` (mode 0600). Disconnect deletes owned files and strips marker-bounded blocks from shared config files (e.g., Himalaya's `config.toml`) without touching the user's other accounts.
+
+Test suite: `pytest` — 37 tests covering bundle parsing, state round-trip, every writer in dry-run + wet mode, lifecycle CLI flows.
 
 The bundle spec is v1-draft. ADR-052 is Accepted (canonical home: `~/kit-army-config/docs/adr-052-two-tier-ecosystem-access-2026-05-20.md`).
 

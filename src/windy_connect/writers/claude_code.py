@@ -1,9 +1,7 @@
 """Write Windy credentials so Claude Code can route through Windy Mind.
 
-This is the minimal viable wire: point Claude Code's ``ANTHROPIC_BASE_URL`` /
-``OPENAI_BASE_URL`` and key at Windy Mind. Claude Code natively reads these as
-env vars, so we write them to ``~/.claude/windy.env`` and let the user source it
-(or symlink into a shell rc).
+Claude Code reads ``ANTHROPIC_BASE_URL`` / ``OPENAI_BASE_URL`` natively, so we
+write them to ``~/.claude/windy.env`` for the user to source from their shell rc.
 
 Mail and Chat integration for Claude Code is left for a future release — Claude
 Code does not have an in-tree mail or chat surface today.
@@ -32,7 +30,7 @@ class ClaudeCodeWriter(Writer):
                 f'export OPENAI_BASE_URL="{bundle.windy_mind.base_url}"\n'
                 f'export OPENAI_API_KEY="{bundle.windy_mind.api_key}"\n'
             )
-            self._write(env_path, content, result)
+            self._write_owned(env_path, content, result)
         else:
             result.skipped.append("windy_mind: no openai-compatible block in bundle")
 
@@ -40,11 +38,11 @@ class ClaudeCodeWriter(Writer):
         result.skipped.append("windy_chat: Claude Code has no native chat surface yet")
         return result
 
-    def _write(self, path: Path, content: str, result: WriteResult) -> None:
+    def _write_owned(self, path: Path, content: str, result: WriteResult) -> None:
         if self.dry_run:
-            result.files_written.append(path)
+            result.owned_files.append(path)
             return
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
         path.chmod(0o600)
-        result.files_written.append(path)
+        result.owned_files.append(path)
