@@ -36,11 +36,31 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from importlib import resources
+
 from ..bundle import Bundle
 from .base import BlockEdit, WriteResult, Writer
 
 ENV_MARKER_START = "# --- windy-connect:begin ---"
 ENV_MARKER_END = "# --- windy-connect:end ---"
+
+
+def _bundled_skill_md() -> str | None:
+    """Return the canonical windy-access SKILL.md packaged with this wheel.
+
+    Returns None if the package data isn't bundled (e.g. running from an
+    editable install before the data file was force-included). In that case
+    we skip the skill auto-install — the env-var block alone is sufficient
+    for the runtime to function.
+    """
+    try:
+        return (
+            resources.files("windy_connect._skill_data")
+            .joinpath("SKILL.md")
+            .read_text(encoding="utf-8")
+        )
+    except (FileNotFoundError, ModuleNotFoundError):
+        return None
 
 
 class HermesWriter(Writer):
@@ -123,6 +143,27 @@ class HermesWriter(Writer):
         self._append_or_replace_block(
             env_path, block, ENV_MARKER_START, ENV_MARKER_END, result
         )
+
+        # --- Skill auto-install (parity with OpenClaw's plugin manifest drop)
+        # Hermes scans ~/.hermes/skills/ for SKILL.md files. Dropping the
+        # canonical windy-access SKILL.md there means the agent picks the
+        # skill up without the user having to `hermes skills tap add` first.
+        skill_md = _bundled_skill_md()
+        if skill_md is not None:
+            skill_dir = hermes_root / "skills" / "windy-access"
+            skill_path = skill_dir / "SKILL.md"
+            if self.dry_run:
+                result.owned_files.append(skill_path)
+            else:
+                skill_dir.mkdir(parents=True, exist_ok=True)
+                skill_path.write_text(skill_md, encoding="utf-8")
+                result.owned_files.append(skill_path)
+        else:
+            result.skipped.append(
+                "skill auto-install: SKILL.md not bundled in this wheel "
+                "(editable install? users should still pick up the env block)"
+            )
+
         return result
 
     def _append_or_replace_block(

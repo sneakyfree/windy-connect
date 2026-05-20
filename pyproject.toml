@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "windy-connect"
-version = "0.2.0"
+version = "0.2.1"
 description = "Wire any AI agent into the Windy ecosystem in one command."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -49,16 +49,23 @@ Source = "https://github.com/sneakyfree/windy-connect"
 [tool.hatch.build.targets.wheel]
 packages = ["src/windy_connect"]
 
+# Bundle the canonical SKILL.md so the Hermes writer can drop it into
+# ~/.hermes/skills/windy-access/ at `windy connect` time. Keeps a single
+# source of truth at skills/windy-access/SKILL.md while still shipping
+# the file with the wheel.
+[tool.hatch.build.targets.wheel.force-include]
+"skills/windy-access/SKILL.md" = "windy_connect/_skill_data/SKILL.md"
+
 [tool.hatch.build.targets.sdist]
 include = [
   "src/windy_connect",
   "tests",
   "README.md",
   "pyproject.toml",
+  "skills/windy-access/SKILL.md",
 ]
 exclude = [
   "backend",
-  "skills",
   "installer",
   "docs",
   "**/node_modules",

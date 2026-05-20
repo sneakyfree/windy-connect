@@ -68,6 +68,20 @@ class OpenClawWriter(Writer):
         else:
             result.skipped.append("windy_mind: no openai-compatible block in bundle")
 
+        # --- Eternitas EPT (so any OpenClaw skill that wants verifiable
+        # identity can read it — parity with the Hermes writer) ---
+        if bundle.eternitas:
+            ept_lines = [
+                f'WINDY_ETERNITAS_EPT="{bundle.eternitas.ept}"',
+                f'WINDY_ETERNITAS_PASSPORT="{bundle.eternitas.passport}"',
+                f'WINDY_ETERNITAS_OPERATOR_ID="{bundle.eternitas.operator_id}"',
+                f'WINDY_ETERNITAS_JWKS_URL="{bundle.eternitas.jwks_url}"',
+            ]
+            ept_path = config_root / "secrets" / "windy-eternitas.env"
+            self._write_owned(ept_path, "\n".join(ept_lines) + "\n", result)
+        else:
+            result.skipped.append("eternitas: no passport in bundle (anonymous tier)")
+
         # --- Mail (via Himalaya — shared config, marker block) ---
         if bundle.windy_mail:
             himalaya_path = (

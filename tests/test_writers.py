@@ -160,6 +160,32 @@ def test_openclaw_secrets_are_0600(sandbox: Path, credentialed_bundle: Bundle) -
     assert p.stat().st_mode & 0o777 == 0o600
 
 
+def test_openclaw_writes_eternitas_ept(
+    sandbox: Path, credentialed_bundle: Bundle
+) -> None:
+    """Parity with Hermes writer: the EPT must be readable by OpenClaw skills."""
+    result = OpenClawWriter().write(credentialed_bundle)
+    ept_path = sandbox / ".config" / "openclaw" / "secrets" / "windy-eternitas.env"
+    assert ept_path.exists()
+    text = ept_path.read_text()
+    assert credentialed_bundle.eternitas is not None
+    assert credentialed_bundle.eternitas.ept in text
+    assert credentialed_bundle.eternitas.passport in text
+    assert "WINDY_ETERNITAS_JWKS_URL" in text
+    # The eternitas file must be in owned_files so disconnect cleans it up
+    assert ept_path in result.owned_files
+
+
+def test_openclaw_skips_eternitas_for_anonymous_tier(
+    sandbox: Path, free_bundle: Bundle
+) -> None:
+    """Free tier has no Eternitas block — writer must skip cleanly."""
+    result = OpenClawWriter().write(free_bundle)
+    ept_path = sandbox / ".config" / "openclaw" / "secrets" / "windy-eternitas.env"
+    assert not ept_path.exists()
+    assert any("eternitas" in s for s in result.skipped)
+
+
 # ---------- Registry & dry-run remove ----------
 
 
@@ -259,6 +285,43 @@ def test_hermes_honors_hermes_home_env_var(
     HermesWriter().write(credentialed_bundle)
     assert (relocated / ".env").exists()
     assert not (sandbox / ".hermes" / ".env").exists()
+
+
+def test_hermes_auto_installs_windy_access_skill(
+    sandbox: Path, credentialed_bundle: Bundle
+) -> None:
+    """Parity with OpenClaw plugin-manifest drop: Hermes should also have
+    a skill file dropped into ~/.hermes/skills/windy-access/SKILL.md so the
+    agent picks it up without the user running `hermes skills tap add`."""
+    from windy_connect.writers.hermes import _bundled_skill_md
+
+    if _bundled_skill_md() is None:
+        # In an editable install without package data; assertion is conditional.
+        return
+
+    result = HermesWriter().write(credentialed_bundle)
+    skill_path = sandbox / ".hermes" / "skills" / "windy-access" / "SKILL.md"
+    assert skill_path.exists()
+    text = skill_path.read_text()
+    assert text.startswith("---\nname: windy-access")
+    assert "Hermes Agent" in text
+    assert skill_path in result.owned_files
+
+
+def test_hermes_remove_cleans_up_skill_file(
+    sandbox: Path, credentialed_bundle: Bundle
+) -> None:
+    from windy_connect.writers.hermes import _bundled_skill_md
+
+    if _bundled_skill_md() is None:
+        return
+
+    writer = HermesWriter()
+    result = writer.write(credentialed_bundle)
+    skill_path = sandbox / ".hermes" / "skills" / "windy-access" / "SKILL.md"
+    assert skill_path.exists()
+    writer.remove(result)
+    assert not skill_path.exists()
 
 
 def test_dry_run_remove_does_not_touch_files(
