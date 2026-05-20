@@ -75,12 +75,13 @@ Point the CLI at a non-default orchestrator with `WINDY_CONNECT_API_URL=https://
 pip install -e .
 windy connect --mock        # provision + write configs + persist state
 windy status                # show what's wired
+windy doctor                # run diagnostics against the current connection
 windy disconnect            # reverse everything cleanly
 ```
 
 State is persisted to `~/.windy/state.json` (mode 0600). Disconnect deletes owned files and strips marker-bounded blocks from shared config files (e.g., Himalaya's `config.toml`) without touching the user's other accounts.
 
-Test suite: `pytest` — 37 tests covering bundle parsing, state round-trip, every writer in dry-run + wet mode, lifecycle CLI flows.
+Test suite: `pytest` — 48 tests covering bundle parsing, state round-trip, every writer in dry-run + wet mode, doctor diagnostics, and full CLI lifecycle.
 
 The bundle spec is v1-draft. ADR-052 is Accepted (canonical home: `~/kit-army-config/docs/adr-052-two-tier-ecosystem-access-2026-05-20.md`).
 

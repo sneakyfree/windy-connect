@@ -6,6 +6,8 @@ Replaced by real orchestrator response once that ships.
 
 from __future__ import annotations
 
+import base64
+import json
 from datetime import UTC, datetime, timedelta
 
 from .bundle import (
@@ -27,8 +29,17 @@ def make_mock_bundle(*, tier: str = "credentialed") -> Bundle:
 
     eternitas: EternitasBlock | None = None
     if tier == "credentialed":
+        ept_payload = (
+            base64.urlsafe_b64encode(
+                json.dumps(
+                    {"sub": "ET26-MOCK-0001", "exp": int(expires.timestamp())}
+                ).encode()
+            )
+            .rstrip(b"=")
+            .decode()
+        )
         eternitas = EternitasBlock(
-            ept="eyJhbGciOiJFUzI1NiIsImtpZCI6Im1vY2sifQ.eyJzdWIiOiJFVDI2LU1PQ0stMDAwMSJ9.MOCK",
+            ept=f"eyJhbGciOiJFUzI1NiIsImtpZCI6Im1vY2sifQ.{ept_payload}.MOCK",
             passport="ET26-MOCK-0001",
             operator_id="op_mock_0000000000000000000000",
             clearance_level="verified",

@@ -24,6 +24,7 @@ from . import __version__, state as state_mod
 from ._mock_bundle import make_mock_bundle
 from .bundle import Bundle
 from .detect import AgentInfo, detect_all
+from .doctor import run_all_checks
 from .orchestrator import OrchestratorError, api_url, connect_via_orchestrator
 from .state import State
 from .writers import REGISTRY, RemoveResult, WriteResult
@@ -279,6 +280,38 @@ def disconnect(
 
     if not dry_run:
         console.print("[bold green]Disconnected.[/]")
+
+
+@app.command()
+def doctor() -> None:
+    """Run diagnostics against the current connection."""
+    checks = run_all_checks()
+
+    table = Table(title="windy doctor")
+    table.add_column("Check", style="bold")
+    table.add_column("Status")
+    table.add_column("Detail")
+    failed = 0
+    warned = 0
+    for c in checks:
+        if not c.ok:
+            failed += 1
+            status_cell = "[red]✗ fail[/]"
+        elif c.warning:
+            warned += 1
+            status_cell = "[yellow]! warn[/]"
+        else:
+            status_cell = "[green]✓ ok[/]"
+        table.add_row(c.name, status_cell, c.detail)
+    console.print(table)
+
+    if failed:
+        console.print(f"[red]{failed} check(s) failed.[/]")
+        raise typer.Exit(1)
+    if warned:
+        console.print(f"[yellow]{warned} warning(s) — see details above.[/]")
+    else:
+        console.print("[bold green]All checks passed.[/]")
 
 
 @app.command()

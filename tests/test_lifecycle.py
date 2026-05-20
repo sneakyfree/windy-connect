@@ -98,3 +98,23 @@ def test_version() -> None:
     result = runner.invoke(app, ["version"])
     assert result.exit_code == 0
     assert "windy" in result.stdout
+
+
+def test_doctor_no_state(sandbox: Path) -> None:
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 1
+    assert "fail" in result.stdout
+    assert "no ~/.windy/state.json" in result.stdout
+
+
+def test_doctor_after_connect(sandbox: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A clean mock install should pass doctor (network probes get a fake httpx)."""
+
+    class _Res:
+        status_code = 200
+
+    monkeypatch.setattr("windy_connect.doctor.httpx.get", lambda *_a, **_kw: _Res())
+    runner.invoke(app, ["connect", "--mock", "--with-eternitas"], input="all\n")
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0, result.stdout
+    assert "All checks passed" in result.stdout
