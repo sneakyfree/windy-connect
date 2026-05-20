@@ -26,6 +26,7 @@ import { handleSkillsIndex, handleSkillMd } from "./routes/skills";
 
 export interface Env {
   DEVICE_CODES?: KVNamespace;
+  SESSIONS?: DurableObjectNamespace;
 
   // Public vars
   ETERNITAS_API_URL: string;
@@ -42,6 +43,8 @@ export interface Env {
   SYNAPSE_ADMIN_TOKEN?: string;
   MIND_ADMIN_TOKEN?: string;
 }
+
+export { DeviceSessions } from "./sessions_do";
 
 export default {
   async fetch(req: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {

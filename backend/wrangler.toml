@@ -12,12 +12,16 @@ type = "Text"
 globs = ["**/*.md"]
 fallthrough = true
 
-# KV namespace for device-code → bundle correlation (RFC 8628).
-# Created via: wrangler kv:namespace create DEVICE_CODES
-# Then paste the returned id below.
-# kv_namespaces = [
-#   { binding = "DEVICE_CODES", id = "REPLACE_AFTER_CREATE" }
-# ]
+# Device-code session store. Tried Workers KV first but none of the lockbox
+# tokens have Workers KV scope (auth error 10000 against the KV API). Falling
+# back to a Durable Object — code-defined, deploys without dashboard.
+[[durable_objects.bindings]]
+name = "SESSIONS"
+class_name = "DeviceSessions"
+
+[[migrations]]
+tag = "v1-sessions"
+new_sqlite_classes = ["DeviceSessions"]
 
 # Vars are public; secrets are set via `wrangler secret put`.
 [vars]
