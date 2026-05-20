@@ -30,7 +30,12 @@ STALWART_ADMIN_URL = "https://mail.windymail.ai"
 STALWART_ADMIN_USER = "admin"
 ENABLE_REAL_PROVISIONING = "false"
 ISSUER_NAME = "windy"
+# ISSUER_URL = brand-facing identity (appears in bundle.issuer.url). Brand
+# domain — may or may not be wired as a marketing site.
 ISSUER_URL = "https://windyconnect.com"
+# API_BASE_URL = Worker-served host. The CLI and OAuth callback resolve to
+# this. Always live — it's where the Worker actually answers.
+API_BASE_URL = "https://api.windyconnect.com"
 
 # Secrets to set with `wrangler secret put <NAME>`:
 #   STALWART_ADMIN_PASS         (from kit-army-config: <REDACTED-see-kit-army-config>)
@@ -53,3 +58,4 @@ STALWART_ADMIN_USER = "admin"
 ENABLE_REAL_PROVISIONING = "false"
 ISSUER_NAME = "windy"
 ISSUER_URL = "https://windyconnect.com"
+API_BASE_URL = "https://api.windyconnect.com"

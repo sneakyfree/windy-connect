@@ -1,0 +1,70 @@
+name: CI
+
+# Run tests + lint on every push and pull request.
+# Catches regressions before they land on main.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: pytest + ruff
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: ruff check src/
+      - run: pytest tests/ -q --tb=short
+
+  worker:
+    name: Worker build (TypeScript)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - working-directory: backend
+        run: npm ci
+      - name: wrangler bundle (no deploy)
+        working-directory: backend
+        run: |
+          npx --yes wrangler@latest deploy --env="" --outdir ./dist --dry-run
+          test -f ./dist/index.js
+          echo "Bundle size: $(wc -c < ./dist/index.js) bytes"
+
+  skill-sha:
+    name: SKILL.md integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Worker-served SKILL.md matches source
+        run: |
+          curl -sS https://api.windyconnect.com/.well-known/skills/windy-access/SKILL.md \
+            -o /tmp/served.md
+          SERVED_SHA=$(sha256sum /tmp/served.md | awk '{print $1}')
+          SOURCE_SHA=$(sha256sum skills/windy-access/SKILL.md | awk '{print $1}')
+          echo "Worker: $SERVED_SHA"
+          echo "Source: $SOURCE_SHA"
+          # Don't fail PRs on drift — author may be intentionally updating
+          # the skill before the next deploy. Just surface the diff.
+          if [ "$SERVED_SHA" != "$SOURCE_SHA" ]; then
+            echo "::warning::Worker SKILL.md sha differs from source — deploy backend/ after merging."
+          fi

@@ -51,7 +51,8 @@ export async function provisionBundle(env: Env, input: ProvisionInput): Promise<
     },
     issued_at: now.toISOString(),
     expires_at: expires.toISOString(),
-    refresh_url: `${env.ISSUER_URL.replace("//windyconnect", "//api.windyconnect")}/v1/bundle/refresh`,
+    // refresh_url MUST resolve (CLI calls it). Use API_BASE_URL not ISSUER_URL.
+    refresh_url: `${env.API_BASE_URL}/v1/bundle/refresh`,
     eternitas,
     windy_chat,
     windy_mail,

@@ -29,7 +29,7 @@ export async function handleGoogleStart(req: Request, env: Env): Promise<Respons
     );
   }
 
-  const redirectUri = new URL("/v1/oauth/google/callback", env.ISSUER_URL).toString();
+  const redirectUri = new URL("/v1/oauth/google/callback", env.API_BASE_URL).toString();
   const state = btoa(JSON.stringify({ user_code: userCode })).replace(/=/g, "");
 
   const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
@@ -63,7 +63,7 @@ export async function handleGoogleCallback(req: Request, env: Env): Promise<Resp
   }
 
   // Exchange code for tokens
-  const redirectUri = new URL("/v1/oauth/google/callback", env.ISSUER_URL).toString();
+  const redirectUri = new URL("/v1/oauth/google/callback", env.API_BASE_URL).toString();
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -86,7 +86,7 @@ export async function handleGoogleCallback(req: Request, env: Env): Promise<Resp
 
   // Forward to /pair page with the id_token + user_code; the page POSTs to
   // /v1/pair/submit which mints the bundle.
-  const pair = new URL("/pair", env.ISSUER_URL);
+  const pair = new URL("/pair", env.API_BASE_URL);
   pair.searchParams.set("code", user_code);
   pair.searchParams.set("id_token", tokens.id_token);
   return Response.redirect(pair.toString(), 302);

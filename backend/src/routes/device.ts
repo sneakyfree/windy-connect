@@ -17,8 +17,15 @@ const DEFAULT_INTERVAL_SECONDS = 5;
 const SESSION_TTL_SECONDS = 900;
 
 export async function handleDeviceInit(req: Request, env: Env): Promise<Response> {
-  const body = await safeJson(req);
-  const tier: Tier = body?.tier === "free" ? "free" : "credentialed";
+  // Strict parse: reject unparseable bodies with 400 rather than silently
+  // defaulting. /v1/device/init is cheap to spam, so we want every bad
+  // request to fail loudly so attackers/clients can't quietly burn
+  // sessions through default values.
+  const body = await strictJson(req);
+  if (body && (body as { __invalid?: boolean }).__invalid) {
+    return json({ error: "invalid_body", error_description: "request body is not valid JSON" }, 400);
+  }
+  const tier: Tier = (body as { tier?: string })?.tier === "free" ? "free" : "credentialed";
 
   const device_code = generateDeviceCode();
   const user_code = generateUserCode();
@@ -35,7 +42,10 @@ export async function handleDeviceInit(req: Request, env: Env): Promise<Response
   };
   await putSession(env, session);
 
-  const verification_uri = new URL("/pair", env.ISSUER_URL).toString();
+  // verification_uri must resolve — point at the Worker host (API_BASE_URL),
+  // not the brand-facing ISSUER_URL. The CLI prints this URL for the user
+  // to open in a browser, and the Worker serves /pair.
+  const verification_uri = new URL("/pair", env.API_BASE_URL).toString();
   const verification_uri_complete = `${verification_uri}?code=${encodeURIComponent(user_code)}`;
 
   return json({
@@ -145,6 +155,22 @@ async function safeJson(req: Request): Promise<any> {
     return await req.json();
   } catch {
     return {};
+  }
+}
+
+/**
+ * Strict JSON parse — returns the body if valid (including an empty {} for
+ * an empty body), or a sentinel object {__invalid: true} if the body is
+ * present-but-unparseable. Callers should branch on the sentinel and emit
+ * 400 invalid_body rather than silently defaulting.
+ */
+async function strictJson(req: Request): Promise<unknown> {
+  const text = await req.text();
+  if (text.trim() === "") return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { __invalid: true };
   }
 }
 

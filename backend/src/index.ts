@@ -23,6 +23,7 @@ import { handleGoogleStart, handleGoogleCallback } from "./routes/oauth";
 import { handleBundleRefresh } from "./routes/bundle";
 import { handlePair } from "./routes/pair";
 import { handleSkillsIndex, handleSkillMd } from "./routes/skills";
+import { handleVersion } from "./routes/version";
 // @ts-expect-error wrangler text-loader inlines the install script
 import installSh from "../../installer/install.sh";
 
@@ -36,7 +37,12 @@ export interface Env {
   STALWART_ADMIN_USER: string;
   ENABLE_REAL_PROVISIONING: string; // "true" | "false"
   ISSUER_NAME: string;
-  ISSUER_URL: string;
+  ISSUER_URL: string; // brand identity (windyconnect.com) — used for bundle.issuer.url
+  API_BASE_URL: string; // Worker-served host (api.windyconnect.com) — used for verification_uri + OAuth redirect
+
+  // Build-time injected by backend/scripts/deploy.sh (optional — /version falls back if unset)
+  COMMIT_SHA?: string;
+  DEPLOYED_AT?: string;
 
   // Secrets (set with `wrangler secret put`)
   STALWART_ADMIN_PASS?: string;
@@ -78,6 +84,9 @@ export default {
       }
       if (url.pathname === "/healthz") {
         return json({ ok: true, ts: new Date().toISOString() });
+      }
+      if (url.pathname === "/version" && req.method === "GET") {
+        return handleVersion(req, env);
       }
       if (url.pathname === "/.well-known/skills/index.json" && req.method === "GET") {
         return handleSkillsIndex(req, env);
