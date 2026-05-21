@@ -12,6 +12,7 @@ import { generateDeviceCode, generateUserCode, normalizeUserCode } from "../code
 import { getByDeviceCode, getDeviceCodeByUserCode, putSession, updateSession } from "../store";
 import type { DeviceSession, Tier } from "../types";
 import { provisionBundle } from "../provision";
+import { verifyCsrf } from "./pair";
 
 const DEFAULT_INTERVAL_SECONDS = 5;
 const SESSION_TTL_SECONDS = 900;
@@ -41,6 +42,16 @@ export async function handleDeviceInit(req: Request, env: Env): Promise<Response
     expires_at: expires_at.toISOString(),
   };
   await putSession(env, session);
+
+  // Structured log line for Workers Observability — searchable later by
+  // event=device_init and by tier. No PII (user_code is short-lived + not
+  // tied to identity until /v1/pair/submit).
+  console.log(JSON.stringify({
+    event: "device_init",
+    tier,
+    user_code: user_code,
+    ts: now.toISOString(),
+  }));
 
   // verification_uri must resolve — point at the Worker host (API_BASE_URL),
   // not the brand-facing ISSUER_URL. The CLI prints this URL for the user
@@ -82,6 +93,11 @@ export async function handleDevicePoll(req: Request, env: Env): Promise<Response
     case "expired":
       return json({ error: "expired_token" }, 410);
     case "approved":
+      console.log(JSON.stringify({
+        event: "device_poll_approved",
+        tier: session.tier,
+        ts: new Date().toISOString(),
+      }));
       return json({ bundle: session.bundle });
   }
 }
@@ -94,6 +110,14 @@ export async function handleDevicePoll(req: Request, env: Env): Promise<Response
  * directly and we'll mint a bundle. Production should require Google's id_token.
  */
 export async function handlePairSubmit(req: Request, env: Env): Promise<Response> {
+  // CSRF defense: the /pair page set a SameSite=Strict cookie + embedded
+  // a matching token. The page's JS sends both back. Any cross-site POST
+  // can't replay this because the browser won't send the cookie.
+  const csrfError = verifyCsrf(req);
+  if (csrfError) {
+    return json({ error: "csrf_check_failed", detail: csrfError }, 403);
+  }
+
   const body = await safeJson(req);
   const user_code = normalizeUserCode(body?.user_code ?? "");
   const google_email: string | undefined = body?.google_email;

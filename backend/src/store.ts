@@ -120,3 +120,26 @@ export async function getDeviceCodeByUserCode(
 export async function updateSession(env: Env, session: DeviceSession): Promise<void> {
   await putSession(env, session);
 }
+
+/**
+ * Per-key rate limit via the SESSIONS Durable Object. Returns true if the
+ * request fits within the bucket, false if it should be rejected.
+ *
+ * Globally consistent (single DO instance) — accurate even under high
+ * fan-out across colos. ~5ms overhead per call.
+ */
+export async function rateLimitCheck(
+  env: Env,
+  key: string,
+  limit: number,
+  periodSeconds: number,
+): Promise<{ success: boolean; remaining: number; reset_in_seconds?: number }> {
+  if (!env.SESSIONS) return { success: true, remaining: limit };
+  const stub = env.SESSIONS.get(env.SESSIONS.idFromName("sessions"));
+  const res = await stub.fetch("https://do/ratelimit", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ key, limit, period_seconds: periodSeconds }),
+  });
+  return res.json();
+}

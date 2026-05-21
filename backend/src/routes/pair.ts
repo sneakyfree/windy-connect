@@ -14,25 +14,53 @@
 
 import type { Env } from "../index";
 
+const CSRF_COOKIE = "windy_pair_csrf";
+
 export async function handlePair(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
   const code = url.searchParams.get("code") ?? "";
   const idToken = url.searchParams.get("id_token") ?? "";
   const realMode = env.ENABLE_REAL_PROVISIONING === "true";
 
+  // Issue a CSRF token. Double-submit pattern: same value goes in the cookie
+  // and into the rendered HTML for the page's JS to read and send back as
+  // X-CSRF-Token on POST /v1/pair/submit. The cookie's SameSite=Strict is
+  // the primary defense; the header check is belt-and-suspenders for
+  // browsers that don't honor SameSite or for non-browser callers.
+  const csrf = crypto.randomUUID();
+
   const html = renderPairHtml({
     code,
     idToken,
     realMode,
     googleConfigured: !!env.GOOGLE_OAUTH_CLIENT_ID,
+    csrf,
   });
   return new Response(html, {
     status: 200,
     headers: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
+      "set-cookie": `${CSRF_COOKIE}=${csrf}; Path=/v1/pair; HttpOnly; Secure; SameSite=Strict; Max-Age=900`,
     },
   });
+}
+
+/**
+ * Verify a request to /v1/pair/submit carries a valid CSRF token.
+ * Returns null on success, or an error string explaining the failure.
+ */
+export function verifyCsrf(req: Request): string | null {
+  const headerToken = req.headers.get("x-csrf-token") ?? "";
+  const cookieHeader = req.headers.get("cookie") ?? "";
+  const m = cookieHeader.match(new RegExp(`(?:^|;\\s*)${CSRF_COOKIE}=([^;]+)`));
+  const cookieToken = m ? m[1] : "";
+  if (!headerToken || !cookieToken) return "missing CSRF token";
+  // Constant-time comparison would be ideal; for a 36-char UUID a normal
+  // === leaks ~36 bits of timing info worst case — not a real attack vector
+  // for our use case, but easy to add later.
+  if (headerToken !== cookieToken) return "CSRF token mismatch";
+  return null;
 }
 
 function renderPairHtml(args: {
@@ -40,6 +68,7 @@ function renderPairHtml(args: {
   idToken: string;
   realMode: boolean;
   googleConfigured: boolean;
+  csrf: string;
 }): string {
   const banner = args.realMode
     ? ""
@@ -118,11 +147,14 @@ const form = document.getElementById('pair-form');
 const statusEl = document.getElementById('status');
 const idToken = ${JSON.stringify(args.idToken)};
 
+const CSRF_TOKEN = ${JSON.stringify(args.csrf)};
+
 async function submit(payload) {
   statusEl.innerHTML = '<p>Pairing…</p>';
   const res = await fetch('/v1/pair/submit', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-csrf-token': CSRF_TOKEN },
+    credentials: 'same-origin',
     body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => ({}));

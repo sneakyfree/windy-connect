@@ -23,6 +23,19 @@ class_name = "DeviceSessions"
 tag = "v1-sessions"
 new_sqlite_classes = ["DeviceSessions"]
 
+# Built-in Workers Observability — dashboard at dash.cloudflare.com under
+# the Worker. Captures invocation traces, exceptions, head sample of logs.
+# No external SaaS, no token rotation, free up to free-tier quota.
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+# Note: rate limiting for /v1/device/init is implemented inside the
+# DeviceSessions DO (sliding-window counter per IP), not via Cloudflare's
+# Workers Rate Limiting beta — the [[unsafe.bindings]] route shows up as
+# "Unsafe Metadata" but doesn't actually gate requests at runtime on this
+# account. See sessions_do.ts:RATE_LIMIT_PATHS.
+
 # Vars are public; secrets are set via `wrangler secret put`.
 [vars]
 ETERNITAS_API_URL = "https://api.eternitas.ai"

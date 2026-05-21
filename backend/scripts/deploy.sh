@@ -66,6 +66,10 @@ METADATA=$(cat <<JSON
 {
   "main_module": "index.js",
   "compatibility_date": "2026-05-01",
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
   "bindings": [
     {"type": "durable_object_namespace", "name": "SESSIONS", "class_name": "DeviceSessions"},
     {"type": "plain_text", "name": "ETERNITAS_API_URL", "text": "https://api.eternitas.ai"},

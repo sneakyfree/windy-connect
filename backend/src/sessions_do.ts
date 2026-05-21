@@ -82,6 +82,41 @@ export class DeviceSessions {
         });
       }
 
+      case "/ratelimit": {
+        // Sliding-window rate limit. body.key is e.g. "init:<ip>".
+        // body.limit + body.period_seconds define the bucket.
+        const limit = (body as { limit?: number }).limit ?? 10;
+        const periodSeconds = (body as { period_seconds?: number }).period_seconds ?? 60;
+        const nowMs = Date.now();
+        const cutoffMs = nowMs - periodSeconds * 1000;
+
+        const bucketKey = `rl:${key}`;
+        const bucket = (await this.state.storage.get<number[]>(bucketKey)) ?? [];
+        // Drop timestamps outside the window
+        const fresh = bucket.filter((t) => t > cutoffMs);
+        if (fresh.length >= limit) {
+          // Persist the pruned bucket so the next call sees current state.
+          if (fresh.length !== bucket.length) {
+            await this.state.storage.put(bucketKey, fresh);
+          }
+          return new Response(
+            JSON.stringify({
+              success: false,
+              remaining: 0,
+              reset_in_seconds: Math.ceil((fresh[0] + periodSeconds * 1000 - nowMs) / 1000),
+            }),
+            { headers: { "content-type": "application/json" } },
+          );
+        }
+        fresh.push(nowMs);
+        await this.state.storage.put(bucketKey, fresh);
+        // Also set an alarm for cleanup — but only if not already set
+        return new Response(
+          JSON.stringify({ success: true, remaining: limit - fresh.length }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }
+
       default:
         return new Response(JSON.stringify({ error: "not_found", path: url.pathname }), {
           status: 404,

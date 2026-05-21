@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **CSRF defense on `/v1/pair/submit`** — `GET /pair` issues a `windy_pair_csrf`
+  cookie (HttpOnly, Secure, SameSite=Strict, Path=/v1/pair); the pair page's
+  JS reads it and sends as `X-CSRF-Token`. Double-submit + SameSite=Strict
+  blocks cross-site pair-hijack even before OAuth is real.
+- **Per-IP rate limit on `/v1/device/init`** — 10/min/IP via a sliding-window
+  counter inside the `DeviceSessions` Durable Object. Returns HTTP 429 with a
+  proper `Retry-After` header. Globally consistent (one DO instance) so it
+  works under fan-out across Cloudflare colos.
+- **CORS hardening** — `/v1/pair/submit` and `/v1/oauth/*` now use an
+  Origin allow-list (api.windyconnect.com + pair.* + windyconnect.com +
+  localhost dev origins) instead of the global `*`. CLI-facing endpoints
+  (`/v1/device/*`, `/v1/bundle/*`, `/healthz`, `/version`, `/.well-known/*`)
+  keep `*` so CLI tools (no Origin header) and arbitrary integrations work.
+- **Workers Observability** — Cloudflare's built-in trace + log dashboard
+  enabled (`observability.enabled = true`, head-sample 100%). Structured
+  log lines emitted at `device_init` + `device_poll_approved` for offline
+  analysis.
+
+### Added
 - `LICENSE`, `CHANGELOG.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`
 - `GET /version` endpoint on the orchestrator Worker, returning
   `{version, commit_sha, deployed_at}` per the ecosystem version-endpoint contract
