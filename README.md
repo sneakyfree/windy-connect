@@ -52,14 +52,22 @@ The Windy ecosystem follows the **two-tier-everywhere** principle (see [ADR-052]
 windy-connect/
   src/windy_connect/      # Python CLI (published to PyPI as windy-connect)
   backend/                # Cloudflare Worker orchestrator (TypeScript)
+  skills/windy-access/    # ClawHub skill (SKILL.md + README) — also bundled into the wheel
   tests/                  # pytest suite for the CLI
   docs/
     bundle-spec-v1.md     # The Eternitas Agent Credentials Bundle spec
+    upstream-gaps.md      # Real-provisioning state per upstream service
+    oauth-setup.md
+    pypi-setup.md
     adr/                  # Architectural decision records
     dns-plan.md
   pyproject.toml
   README.md
 ```
+
+The marketing site (windyconnect.com) lives in its own repo at
+[`sneakyfree/windy-connect-site`](https://github.com/sneakyfree/windy-connect-site)
+per the Windy ecosystem `<product>-site` convention.
 
 ## Orchestrator backend
 
@@ -107,4 +115,5 @@ Immediate roadmap:
 
 ## License
 
-TBD (likely MIT for the CLI and skill, proprietary for backend orchestrator).
+MIT for the entire repo (CLI + Worker backend + skill). See [`LICENSE`](LICENSE).
+The marketing site is also MIT — see [`sneakyfree/windy-connect-site`](https://github.com/sneakyfree/windy-connect-site).
