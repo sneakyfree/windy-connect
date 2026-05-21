@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Terms of Service — Windy Connect</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+         max-width: 720px; margin: 0 auto; padding: 40px 24px; line-height: 1.6;
+         background: #0a1f3d; color: #f7f9fc; }
+  h1 { color: #fff; }
+  h2 { color: #82bbff; margin-top: 32px; }
+  a { color: #5fa8ff; }
+  code { background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 4px;
+         font-family: ui-monospace, monospace; font-size: 0.9em; }
+  .muted { color: #8aa0c0; font-size: 14px; }
+  .meta { color: #8aa0c0; font-size: 14px; margin-top: 40px; padding-top: 20px;
+          border-top: 1px solid rgba(255,255,255,0.1); }
+</style>
+</head>
+<body>
+<p class="muted"><a href="/">← Back to windyconnect.com</a></p>
+<h1>Terms of Service</h1>
+<p class="muted">Effective 2026-05-21</p>
+
+<p>These terms govern your use of <strong>Windy Connect</strong> — the
+<code>windy</code> CLI, the orchestrator Worker at
+<code>api.windyconnect.com</code>, the <code>windy-access</code> ClawHub skill,
+and the linked services (Windy Mail, Windy Chat, Windy Mind, Eternitas).</p>
+
+<p>By running <code>windy connect</code> or otherwise using the service, you
+agree to these terms.</p>
+
+<h2>What Windy Connect does</h2>
+<p>Windy Connect pairs an AI agent on your machine with the Windy ecosystem.
+After pairing, your agent gets:</p>
+<ul>
+  <li>An email address at <code>@windymail.ai</code> (Windy Mail)</li>
+  <li>A chat identity on <code>matrix.windychat.ai</code> (Windy Chat)</li>
+  <li>An OpenAI-compatible LLM API endpoint (Windy Mind)</li>
+  <li>Optionally, an Eternitas Passport identifying it as a verifiable agent</li>
+</ul>
+
+<h2>What you agree to</h2>
+<ul>
+  <li><strong>Use it lawfully.</strong> Don't use Windy Connect or the
+      linked services to send spam, harass people, conduct fraud, or
+      anything illegal where you operate.</li>
+  <li><strong>One agent per pair.</strong> Don't share your bundle
+      credentials. If you need agents on multiple machines, run
+      <code>windy connect</code> on each.</li>
+  <li><strong>Honor rate limits.</strong> Windy Mind has free-tier rate
+      limits documented in the response headers. Burst above them and
+      we'll return HTTP 429.</li>
+  <li><strong>Don't impersonate other Windy products or Windstorm Labs.</strong>
+      Your agent's identity is its own.</li>
+</ul>
+
+<h2>What we agree to</h2>
+<ul>
+  <li>We'll keep <code>windy disconnect</code> working forever. You can
+      always reverse anything we did.</li>
+  <li>We'll publish security fixes promptly. See
+      <a href="https://github.com/sneakyfree/windy-connect/blob/main/SECURITY.md">SECURITY.md</a>.</li>
+  <li>We'll notify you (via the email on file) before any change to these
+      terms that materially affects your rights.</li>
+</ul>
+
+<h2>Free tier and paid tiers</h2>
+<p>Windy Connect itself is and will remain <strong>free and open-source</strong>
+under the MIT License. The connected services (Mail, Chat, Mind) have
+free tiers; paid tiers may be introduced for higher-usage agents. We'll
+publish pricing at <code>windyconnect.com/pricing</code> before charging
+anyone.</p>
+
+<h2>Termination</h2>
+<p>You can terminate any time by running <code>windy disconnect</code>.
+We can terminate or restrict your account if you violate these terms,
+attempt to compromise the service, or if a court orders us to.</p>
+
+<h2>Warranties + liability</h2>
+<p><strong>Windy Connect is provided AS IS, without warranty.</strong>
+We're an early-stage open-source project. Use at your own risk.</p>
+
+<p>To the maximum extent permitted by law, our liability for any damages
+arising from your use of Windy Connect is limited to USD $100 or the
+amount you paid us in the last 12 months, whichever is greater. This
+limitation does not apply to gross negligence, willful misconduct, or
+liabilities that cannot be excluded under applicable law.</p>
+
+<h2>Governing law</h2>
+<p>These terms are governed by the laws of the State of Utah, United States.
+Disputes go to the state or federal courts located there.</p>
+
+<h2>Contact</h2>
+<p>Questions about these terms: <a href="mailto:hello@windyconnect.com">hello@windyconnect.com</a>.</p>
+
+<div class="meta">
+<p>Windstorm Labs LLC · MIT-licensed source at
+<a href="https://github.com/sneakyfree/windy-connect">github.com/sneakyfree/windy-connect</a></p>
+<p>This document is informational and not legal advice. We recommend
+reviewing with counsel before relying on it commercially.</p>
+</div>
+</body>
+</html>

@@ -23,7 +23,7 @@ import type { Env } from "../index";
 // @ts-expect-error wrangler text-loader gives us the file contents as a string
 import skillMd from "../../../skills/windy-access/SKILL.md";
 
-const SKILL_VERSION = "0.2.1";
+const SKILL_VERSION = "0.3.1";
 const REPO = "sneakyfree/windy-connect";
 
 export async function handleSkillsIndex(_req: Request, _env: Env): Promise<Response> {
