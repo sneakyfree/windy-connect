@@ -1,15 +1,25 @@
 /**
- * /pair — the browser page where users enter their device code.
+ * /pair — the browser page where users finish pairing their agent.
  *
- * Two modes:
- *   1. Dev mode (default): user types an email + code, we mint a bundle.
- *      ENABLE_REAL_PROVISIONING must be "false". This path is for the
- *      pre-launch period before Google OAuth + service provisioners are wired.
- *   2. Production mode: user clicks "Continue with Google", we go through the
- *      /v1/oauth/google/* roundtrip, then this page POSTs to /v1/pair/submit
- *      with the verified id_token.
+ * Primary auth model: MAGIC-LINK via email.
+ *   1. User opens /pair?code=XXXX-YYYY (clicked from CLI verification_uri_complete)
+ *   2. User types their email + submits
+ *   3. We POST /v1/pair/start → Resend sends a magic link
+ *   4. User clicks the email link → /v1/pair/verify mints the bundle + redirects
+ *      them back to /pair?code=...&verified=1 with a success state
+ *   5. Meanwhile the CLI polls /v1/device/poll and receives the bundle
  *
- * The HTML is inlined (single file = fastest cold start; tiny enough to read).
+ * Why magic-link not Google OAuth: works without a Google account, no
+ * consent-screen friction, no GCP-console redirect-URI roundtrip when we
+ * launch new hostnames. Grandma-friendly. See magic_link.ts.
+ *
+ * The page also still surfaces a "Continue with Google" button when
+ * GOOGLE_OAUTH_CLIENT_ID is set — for users who prefer it or for the
+ * Windy account-server's existing OAuth client.
+ *
+ * In sandbox mode (ENABLE_REAL_PROVISIONING=false AND no Resend secret),
+ * a fallback "type any email" form falls through to the legacy
+ * /v1/pair/submit path so local-only testing still works.
  */
 
 import type { Env } from "../index";
@@ -20,20 +30,18 @@ export async function handlePair(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
   const code = url.searchParams.get("code") ?? "";
   const idToken = url.searchParams.get("id_token") ?? "";
-  const realMode = env.ENABLE_REAL_PROVISIONING === "true";
+  const verified = url.searchParams.get("verified") === "1";
+  const magicLinkConfigured = !!(env.MAGIC_LINK_SIGNING_KEY && env.RESEND_API_KEY);
+  const googleConfigured = !!env.GOOGLE_OAUTH_CLIENT_ID;
 
-  // Issue a CSRF token. Double-submit pattern: same value goes in the cookie
-  // and into the rendered HTML for the page's JS to read and send back as
-  // X-CSRF-Token on POST /v1/pair/submit. The cookie's SameSite=Strict is
-  // the primary defense; the header check is belt-and-suspenders for
-  // browsers that don't honor SameSite or for non-browser callers.
   const csrf = crypto.randomUUID();
 
   const html = renderPairHtml({
     code,
     idToken,
-    realMode,
-    googleConfigured: !!env.GOOGLE_OAUTH_CLIENT_ID,
+    verified,
+    magicLinkConfigured,
+    googleConfigured,
     csrf,
   });
   return new Response(html, {
@@ -46,19 +54,12 @@ export async function handlePair(req: Request, env: Env): Promise<Response> {
   });
 }
 
-/**
- * Verify a request to /v1/pair/submit carries a valid CSRF token.
- * Returns null on success, or an error string explaining the failure.
- */
 export function verifyCsrf(req: Request): string | null {
   const headerToken = req.headers.get("x-csrf-token") ?? "";
   const cookieHeader = req.headers.get("cookie") ?? "";
   const m = cookieHeader.match(new RegExp(`(?:^|;\\s*)${CSRF_COOKIE}=([^;]+)`));
   const cookieToken = m ? m[1] : "";
   if (!headerToken || !cookieToken) return "missing CSRF token";
-  // Constant-time comparison would be ideal; for a 36-char UUID a normal
-  // === leaks ~36 bits of timing info worst case — not a real attack vector
-  // for our use case, but easy to add later.
   if (headerToken !== cookieToken) return "CSRF token mismatch";
   return null;
 }
@@ -66,22 +67,43 @@ export function verifyCsrf(req: Request): string | null {
 function renderPairHtml(args: {
   code: string;
   idToken: string;
-  realMode: boolean;
+  verified: boolean;
+  magicLinkConfigured: boolean;
   googleConfigured: boolean;
   csrf: string;
 }): string {
-  const banner = args.realMode
-    ? ""
-    : `<div class="banner">⚠️ Pre-launch mode — type any email to mint a sandbox bundle.
-       Real Google sign-in goes live once GOOGLE_OAUTH_CLIENT_ID is set.</div>`;
+  // Path 1: user just clicked the email link and was sent back here
+  const verifiedBanner = args.verified
+    ? `<div class="success">✓ All set. Your agent is paired — return to your terminal.</div>`
+    : "";
 
-  const signInButton = args.googleConfigured
+  const signInWithGoogle = args.googleConfigured
     ? `<a class="btn btn-google" href="/v1/oauth/google/start?code=${encodeURIComponent(args.code)}">
          Continue with Google
        </a>`
-    : `<button class="btn" disabled title="Google OAuth not configured">
-         Continue with Google (not yet enabled)
-       </button>`;
+    : "";
+
+  const orSeparator = args.magicLinkConfigured && args.googleConfigured
+    ? `<div class="sep"><span>or</span></div>`
+    : "";
+
+  const magicLinkForm = args.magicLinkConfigured
+    ? `<form id="magic-form">
+         <label for="email">Your email</label>
+         <input id="email" name="email" type="email" placeholder="you@example.com"
+                autocomplete="email" required>
+         <button class="btn" type="submit">Send me a link</button>
+       </form>
+       <div id="status"></div>`
+    : args.googleConfigured
+      ? "" // Google is the only option — already shown above
+      : `<form id="dev-form">
+           <p class="banner">⚠️ Sandbox mode — type any email to mint a sandbox bundle. Set MAGIC_LINK_SIGNING_KEY + RESEND_API_KEY on the Worker for real magic-link auth.</p>
+           <label for="email">Email (sandbox)</label>
+           <input id="email" name="email" type="email" placeholder="agent@example.com" autocomplete="off" required>
+           <button class="btn" type="submit">Pair (sandbox)</button>
+         </form>
+         <div id="status"></div>`;
 
   return `<!doctype html>
 <html lang="en">
@@ -110,13 +132,21 @@ function renderPairHtml(args: {
          border-radius: 8px; border: none; font-size: 15px; font-weight: 600; cursor: pointer;
          margin-top: 16px; text-align: center; text-decoration: none; }
   .btn:not(:disabled) { background: #5fa8ff; color: #0a1f3d; }
+  .btn:hover:not(:disabled) { background: #82bbff; }
   .btn:disabled { background: #2a3e60; color: #6a7a98; cursor: not-allowed; }
   .btn-google { background: #fff; color: #333; }
   .muted { color: #8aa0c0; font-size: 12px; margin-top: 18px; text-align: center; }
   .success { background: #1f4a2f; border: 1px solid #2e7a47; color: #b8e6c8;
              padding: 14px; border-radius: 8px; margin-top: 16px; }
+  .info { background: #1f2f4a; border: 1px solid #2e477a; color: #b8c8e6;
+          padding: 14px; border-radius: 8px; margin-top: 16px; }
   .err { background: #4a1f1f; border: 1px solid #7a2e2e; color: #ffb8b8;
          padding: 14px; border-radius: 8px; margin-top: 16px; }
+  .sep { text-align: center; margin: 18px 0 6px; color: #8aa0c0; font-size: 13px;
+         position: relative; }
+  .sep::before, .sep::after { content: ""; position: absolute; top: 50%; height: 1px;
+                              background: rgba(255,255,255,0.12); width: 38%; }
+  .sep::before { left: 0; } .sep::after { right: 0; }
   code { background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 4px;
          font-family: ui-monospace, monospace; }
 </style>
@@ -124,58 +154,83 @@ function renderPairHtml(args: {
 <body>
 <div class="card">
   <h1>Pair your agent</h1>
-  <p>Enter the code shown in your terminal, then continue.</p>
-  ${banner}
-  <form id="pair-form">
-    <label for="code">Code from terminal</label>
-    <input id="code" name="code" placeholder="WIND-EAGL" value="${escapeHtml(args.code)}"
-           autocomplete="off" spellcheck="false" autocapitalize="characters" required>
-    ${args.realMode ? "" : `
-      <label for="email">Email (dev mode)</label>
-      <input id="email" name="email" type="email" placeholder="agent@example.com"
-             autocomplete="off" required>
-    `}
-    ${args.realMode
-      ? signInButton
-      : `<button class="btn" type="submit">Pair</button>`}
-  </form>
-  <div id="status"></div>
+  <p>Confirm your email — we'll send you a one-click link to finish pairing the agent that's waiting in your terminal.</p>
+  ${verifiedBanner}
+  ${args.code
+    ? `<p class="muted">Pair code: <code>${escapeHtml(args.code)}</code></p>`
+    : `<div class="err">No pair code in the URL. Run <code>windy connect</code> again to get one.</div>`}
+  ${signInWithGoogle}
+  ${orSeparator}
+  ${magicLinkForm}
   <p class="muted">Powered by Eternitas + Windy Connect.</p>
 </div>
 <script>
-const form = document.getElementById('pair-form');
-const statusEl = document.getElementById('status');
-const idToken = ${JSON.stringify(args.idToken)};
-
 const CSRF_TOKEN = ${JSON.stringify(args.csrf)};
+const USER_CODE = ${JSON.stringify(args.code)};
+const ID_TOKEN = ${JSON.stringify(args.idToken)};
 
-async function submit(payload) {
-  statusEl.innerHTML = '<p>Pairing…</p>';
-  const res = await fetch('/v1/pair/submit', {
+const statusEl = document.getElementById('status');
+const magicForm = document.getElementById('magic-form');
+const devForm = document.getElementById('dev-form');
+
+function setStatus(html) { if (statusEl) statusEl.innerHTML = html; }
+
+async function postJson(path, body) {
+  return fetch(path, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-csrf-token': CSRF_TOKEN },
     credentials: 'same-origin',
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   });
-  const data = await res.json().catch(() => ({}));
-  if (res.ok) {
-    statusEl.innerHTML = '<div class="success">Paired! Return to your terminal — your agent is being configured now.</div>';
-  } else {
-    statusEl.innerHTML = '<div class="err">Pairing failed: ' + (data.error_description || data.error || 'unknown error') + '</div>';
-  }
 }
 
-if (idToken) {
-  const code = document.getElementById('code').value;
-  if (code) submit({ user_code: code, id_token: idToken });
+if (magicForm) {
+  magicForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('email').value;
+    setStatus('<div class="info">Sending the link…</div>');
+    const res = await postJson('/v1/pair/start', { user_code: USER_CODE, email });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 202) {
+      setStatus(
+        '<div class="success">📬 Check your email at <strong>' + escapeHtml(email) + '</strong> ' +
+        'and click the pair link. (Look in spam if you don\\'t see it — the sender is pair@windyword.ai.)</div>'
+      );
+      magicForm.querySelector('button').disabled = true;
+    } else {
+      setStatus('<div class="err">' + escapeHtml(data.error_description || data.detail || data.error || 'Could not send the link.') + '</div>');
+    }
+  });
 }
 
-form.addEventListener('submit', (e) => {
-  e.preventDefault();
-  const user_code = document.getElementById('code').value;
-  const email = document.getElementById('email') ? document.getElementById('email').value : undefined;
-  submit({ user_code, google_email: email });
-});
+if (devForm) {
+  devForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('email').value;
+    setStatus('<div class="info">Pairing…</div>');
+    const res = await postJson('/v1/pair/submit', { user_code: USER_CODE, google_email: email });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setStatus('<div class="success">Paired! Return to your terminal.</div>');
+    } else {
+      setStatus('<div class="err">' + escapeHtml(data.error_description || data.error || 'Pairing failed.') + '</div>');
+    }
+  });
+}
+
+// Legacy: if redirected here with an id_token (Google OAuth callback), submit it.
+if (ID_TOKEN && USER_CODE) {
+  setStatus('<div class="info">Completing Google sign-in…</div>');
+  postJson('/v1/pair/submit', { user_code: USER_CODE, id_token: ID_TOKEN })
+    .then((res) => res.ok
+      ? setStatus('<div class="success">Paired! Return to your terminal.</div>')
+      : res.json().then((d) => setStatus('<div class="err">' + (d.error_description || d.error || 'Pairing failed.') + '</div>'))
+    );
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
 </script>
 </body>
 </html>`;

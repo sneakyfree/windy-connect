@@ -24,6 +24,7 @@ import { handleBundleRefresh } from "./routes/bundle";
 import { handlePair } from "./routes/pair";
 import { handleSkillsIndex, handleSkillMd } from "./routes/skills";
 import { handleVersion } from "./routes/version";
+import { handlePairStart, handlePairVerify } from "./routes/magic_pair";
 // @ts-expect-error wrangler text-loader inlines the install script
 import installSh from "../../installer/install.sh";
 
@@ -50,6 +51,8 @@ export interface Env {
   GOOGLE_OAUTH_CLIENT_SECRET?: string;
   SYNAPSE_ADMIN_TOKEN?: string;
   MIND_ADMIN_TOKEN?: string;
+  MAGIC_LINK_SIGNING_KEY?: string; // 32-byte hex; HS256 signs the magic-link JWT
+  RESEND_API_KEY?: string;         // Resend full-access key for transactional email
 }
 
 export { DeviceSessions } from "./sessions_do";
@@ -133,6 +136,12 @@ export default {
       }
       if (url.pathname === "/v1/pair/submit" && req.method === "POST") {
         return handlePairSubmit(req, env);
+      }
+      if (url.pathname === "/v1/pair/start" && req.method === "POST") {
+        return handlePairStart(req, env);
+      }
+      if (url.pathname === "/v1/pair/verify" && req.method === "GET") {
+        return handlePairVerify(req, env);
       }
       if (url.pathname === "/v1/oauth/google/start" && req.method === "GET") {
         return handleGoogleStart(req, env);

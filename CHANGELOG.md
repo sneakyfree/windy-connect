@@ -7,7 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-05-21
+
 ### Added
+- **Magic-link email auth** — primary production auth model. `POST /v1/pair/start`
+  takes `{user_code, email}`, signs an HS256 JWT with `MAGIC_LINK_SIGNING_KEY`,
+  and sends a one-click pair link via Resend. The user clicks the link,
+  `GET /v1/pair/verify?token=<jwt>` validates the signature + expiry, mints
+  the bundle, and shows a "you're paired" success page. CLI poll returns
+  the bundle. No Google account required; no GCP-console redirect-URI
+  roundtrip; works for any email provider. Grandma-friendly.
+- `backend/src/magic_link.ts` — HS256 sign/verify via WebCrypto, 15-min TTL,
+  base64url everywhere
+- `backend/src/routes/magic_pair.ts` — `/v1/pair/start` + `/v1/pair/verify`
+  handlers including a beautifully-formatted HTML email body
+- Pair page now defaults to the magic-link email form; "Continue with Google"
+  remains shown when `GOOGLE_OAUTH_CLIENT_ID` is set (no longer the only path)
+- Sandbox fallback: when `MAGIC_LINK_SIGNING_KEY` + `RESEND_API_KEY` are both
+  unset, the pair page reverts to the legacy raw-email flow gated behind
+  `ENABLE_REAL_PROVISIONING=false` so local-only testing still works
+- Verified Resend sender: `pair@windyword.ai` (windyword.ai is in Resend's
+  verified-domain list per ACCESS_LOCKBOX.md)
+- Both secrets (`MAGIC_LINK_SIGNING_KEY`, `RESEND_API_KEY`) live as Worker
+  secrets, set + documented in the lockbox
+
+### Changed
+- Auth pivot: Google OAuth is no longer required for production. Magic-link
+  is the new default. Existing Google OAuth path remains supported.
+
+### Added (previously listed under Unreleased)
 - **CSRF defense on `/v1/pair/submit`** — `GET /pair` issues a `windy_pair_csrf`
   cookie (HttpOnly, Secure, SameSite=Strict, Path=/v1/pair); the pair page's
   JS reads it and sends as `X-CSRF-Token`. Double-submit + SameSite=Strict
