@@ -1,49 +1,50 @@
-# Upstream provisioning gaps — Synapse + Mind
+# Upstream provisioning gaps — Synapse + Mind + Stalwart
 
-`provision.ts` fans out to four upstream services. Two of them are wired,
-two are blocked on backend work. This doc captures what's missing so the
-work isn't lost.
-
-**Verified 2026-05-20** by probing live endpoints + reading both repos.
+`provision.ts` fans out to four upstream services. **Verified live state
+2026-05-21** by probing real endpoints + SSH'ing into the boxes.
 
 ## Status matrix
 
-| Block | Endpoint needed | Status | Blocker repo |
+| Block | Endpoint | Status | Notes |
 |---|---|---|---|
-| `eternitas` | `POST /api/v1/auto-hatch` | ⚠️ **Path needs verification** (provision.ts:67 says TODO) | `sneakyfree/eternitas` — likely already exists at `routes/bots.py:95-200` per memory; just confirm the JSON shape |
-| `windy_mail` (Stalwart) | `PUT /api/principal/<localpart>` | ✅ wired — `STALWART_ADMIN_PASS` is in lockbox (`<REDACTED-see-kit-army-config>`), Stalwart docs confirm shape | — |
-| `windy_chat` (Synapse) | `PUT /_synapse/admin/v2/users/...` + `POST /_synapse/admin/v1/users/.../login` | ❌ Admin API **firewalled at nginx** | `sneakyfree/windy-chat` — open admin to internal-trust or add proxy |
-| `windy_mind` (OpenAI-compat) | per-user key issuance endpoint | ❌ **No admin route exists** | `sneakyfree/windy-mind` — net-new feature |
+| `eternitas` | `POST /api/v1/bots/auto-hatch` | ✅ **VERIFIED 2026-05-21** | `provision.ts` updated with the real shape. Body: `{agent_name, creator_email}`. Response: `{passport, ept_token, trust_score, bot_type, ...}`. `operator_id` extracted from EPT's `ope` claim. |
+| `windy_mail` (Stalwart) | JMAP `Principal/set` (not REST `/api/principal`) | 🟡 **Needs JMAP integration** | `STALWART_ADMIN_PASS` is in lockbox AND set as Worker secret. The REST shape `provision.ts` was written for doesn't exist on this Stalwart instance — admin ops on this box go through JMAP per lockbox §Phase 6. Need either (a) JMAP client in the Worker or (b) thin admin proxy in windy-mail. |
+| `windy_chat` (Synapse) | `/_synapse/admin/v2/users/...` | 🟡 **Token bootstrapped, expose pending** | Admin user `@windy-connect-admin2` registered via shared secret 2026-05-21. Access token in lockbox + set as `SYNAPSE_ADMIN_TOKEN` Worker secret. Admin API confirmed working on `127.0.0.1:8008` inside EC2. **BUT** the nginx config (`deploy/nginx/chat.windychat.ai.conf`) only exposes `/_synapse/client/` publicly — Worker can't reach admin endpoints yet. |
+| `windy_mind` (OpenAI-compat) | per-user key issuance | ❌ **Net-new feature** | No admin route exists. Schema + middleware + tests required in `sneakyfree/windy-mind`. |
 
-## Synapse (windy_chat) — what's missing
+## Synapse (windy_chat) — what's left
 
-**State on EC2 `i-0f603361b88baa4c0` (chat.windychat.ai):**
-- Synapse 1.151.0 live; `/_matrix/client/versions` returns 200
-- `/_synapse/admin/*` returns 404 over the public hostname — `deploy/nginx/chat.windychat.ai.conf` only exposes `location /_synapse/client/` (no admin)
-- `enable_registration: false` in homeserver.yaml
-- `registration_shared_secret` IS set (lockbox §Phase 4: `14bc18f3b89bf7b14809235d10ff471f8b9dd801a837ed2ee3497c222ed0e5fc`)
+**Done 2026-05-21:**
+- ✅ Admin user `@windy-connect-admin2:chat.windychat.ai` registered via
+  the shared secret (`registration_shared_secret` from lockbox).
+- ✅ Access token captured + saved to lockbox + set as `SYNAPSE_ADMIN_TOKEN`
+  Worker secret.
+- ✅ Token verified to work against `http://127.0.0.1:8008/_synapse/admin/v1/server_version`
+  from inside the EC2.
 
-**Two paths to unblock:**
+**Remaining: expose the admin API to the Worker.** Two paths (one to pick):
 
-**A. Open admin API behind a scoped header (recommended)**
-1. SSH to Phase 4 EC2.
-2. Register or promote an admin user:
-   ```
-   docker compose exec synapse register_new_matrix_user \
-     -u windy-connect-admin -a -c /data/homeserver.yaml http://127.0.0.1:8008
-   ```
-3. Log in as that admin via `/_matrix/client/r0/login` → capture the
-   `access_token` from the response. This becomes `SYNAPSE_ADMIN_TOKEN`.
-4. Edit `deploy/nginx/chat.windychat.ai.conf` to add:
-   ```
-   location /_synapse/admin/ {
-     # Restrict to the orchestrator's Worker IPs OR require a shared
-     # header (set via map { default ""; X-Windy-Admin "1"; })
-     proxy_pass http://synapse:8008;
-   }
-   ```
-5. Save `SYNAPSE_ADMIN_TOKEN` to lockbox (Phase 4 block), then set as a
-   Worker secret in windy-connect: `wrangler secret put SYNAPSE_ADMIN_TOKEN`.
+**A. nginx scoped-header expose** — simplest
+Edit `deploy/nginx/chat.windychat.ai.conf` on the Phase 4 EC2 to add:
+```
+location /_synapse/admin/ {
+  set $admin_allowed 0;
+  if ($http_x_windy_admin_key = "<scoped-secret>") { set $admin_allowed 1; }
+  if ($admin_allowed = 0) { return 403; }
+  proxy_pass http://synapse:8008;
+}
+```
+The Worker sends `X-Windy-Admin-Key: <scoped-secret>` on every admin call.
+Reverse-able by removing the location block.
+
+**B. Thin proxy in windy-onboarding** — narrower attack surface
+New endpoint in `sneakyfree/windy-chat/onboarding`: `POST /provision/user`
+that takes `{localpart}`, calls admin API on `127.0.0.1:8008` internally,
+returns the user + access token. windy-connect calls THIS endpoint with
+its own bearer (HMAC). Smaller attack surface than exposing admin API
+generally.
+
+**Recommendation: A for speed, B before commercial launch.**
 
 **B. Add a thin proxy in `windy-chat-onboarding` (cleaner, narrower attack
 surface)**
@@ -90,13 +91,36 @@ real public launch.
 **Code in provision.ts:217-238** already throws cleanly when
 `ENABLE_REAL_PROVISIONING=true && MIND_ADMIN_TOKEN` is missing.
 
+## Stalwart Mail — what's left
+
+**Done 2026-05-21:**
+- ✅ `STALWART_ADMIN_PASS` set as Worker secret on `windy-connect-orchestrator`.
+
+**Remaining: switch from REST `/api/principal` to JMAP `Principal/set`.**
+The REST shape that `provision.ts:provisionMail` was originally written for
+doesn't exist on the deployed Stalwart instance (all admin ops were done via
+JMAP per the original setup notes in lockbox §Phase 6). Path forward:
+
+1. Either implement a JMAP client in the Worker (~200 lines — Principal/set,
+   Identity/set, EmailSubmission setup), OR
+2. Add a thin admin proxy to `sneakyfree/windy-mail` (recommended — `PUT
+   /admin/principal/<localpart>` REST-ish wrapper, internal to that repo).
+
+Pick (2) — keeps Stalwart-specific JMAP knowledge in the windy-mail repo
+where it belongs.
+
 ## Sequencing
 
-Both gaps must close BEFORE `ENABLE_REAL_PROVISIONING="true"` flips in
-the windy-connect Worker. Stage:
+To flip `ENABLE_REAL_PROVISIONING=true` in the Worker, all four need to be
+ready. Today's status:
 
-1. Wire Eternitas auto-hatch (verify the JSON shape against
-   `routes/bots.py:95-200`; smallest gap)
-2. Open Synapse admin via path A above (~30 min)
-3. Build Mind admin keys (~1-2 days — schema + middleware + tests)
-4. Flip `ENABLE_REAL_PROVISIONING="true"` and smoke-test end-to-end
+| Block | State |
+|---|---|
+| Eternitas | ✅ provision.ts updated to verified shape; just needs the flag |
+| Synapse | 🟡 token ready; needs nginx admin expose OR onboarding proxy |
+| Stalwart | 🟡 secret ready; needs JMAP path OR admin proxy in windy-mail |
+| Mind | ❌ admin-keys feature must ship in windy-mind first |
+
+Once 3 of 4 are done, can ship `ENABLE_REAL_PROVISIONING=true` with the
+Mind path returning sandbox keys + a clear "Mind admin not yet wired"
+flag in the bundle. But cleaner to wait for all 4.

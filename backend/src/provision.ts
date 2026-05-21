@@ -64,11 +64,56 @@ export async function provisionBundle(env: Env, input: ProvisionInput): Promise<
 // ---------------------------------------------------------------------------
 // Eternitas — mints an EPT via the auto-hatch endpoint.
 //
-// REAL endpoint (TODO verify path): POST {ETERNITAS_API_URL}/api/v1/auto-hatch
-//   body: { google_sub, google_email, operator_kind: "self_registered" }
-//   returns: { ept, passport, operator_id, clearance_level, integrity_band }
-// Reference: sneakyfree/eternitas routes/bots.py:95-200 per project memory.
+// VERIFIED 2026-05-21 against live api.eternitas.ai/openapi.json:
+//   POST {ETERNITAS_API_URL}/api/v1/bots/auto-hatch
+//   body required: { agent_name }     optional: { creator_email, ... }
+//   returns 201 with: { passport, name, ept_token, bot_type, trust_score,
+//                       registered_at, expires_at, contact_email, status }
+//   The operator_id is NOT in the top-level response — it's encoded as the
+//   `ope` claim inside the EPT (JWT). We decode it for the bundle.
 // ---------------------------------------------------------------------------
+
+interface AutoHatchResponse {
+  passport: string;
+  name: string;
+  description: string;
+  bot_type: string;
+  status: string;
+  trust_score: number;
+  trust_ceiling: number;
+  contact_email: string;
+  registered_at: string;
+  expires_at: string;
+  ept_token: string;
+}
+
+function decodeEptOperatorId(ept: string): string {
+  try {
+    const parts = ept.split(".");
+    if (parts.length !== 3) return "";
+    const payloadB64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = payloadB64 + "===".slice(0, (4 - (payloadB64.length % 4)) % 4);
+    const claims = JSON.parse(atob(padded)) as { ope?: string };
+    return claims.ope ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function mapTrustScoreToBand(score: number): "critical" | "poor" | "fair" | "good" | "exceptional" {
+  if (score >= 85) return "exceptional";
+  if (score >= 70) return "good";
+  if (score >= 40) return "fair";
+  if (score >= 20) return "poor";
+  return "critical";
+}
+
+function deriveAgentName(email: string): string {
+  const local = email.split("@")[0] ?? "agent";
+  // Eternitas wants a stable name; downcased local part + suffix to avoid collisions
+  const slug = local.toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 32);
+  return `${slug}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
 async function provisionEternitas(
   env: Env,
@@ -76,25 +121,27 @@ async function provisionEternitas(
   real: boolean,
 ): Promise<EternitasBlock> {
   if (real) {
-    const res = await fetch(`${env.ETERNITAS_API_URL}/api/v1/auto-hatch`, {
+    const res = await fetch(`${env.ETERNITAS_API_URL}/api/v1/bots/auto-hatch`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        google_sub: input.google_sub,
-        google_email: input.google_email,
-        operator_kind: "self_registered",
+        agent_name: deriveAgentName(input.google_email),
+        creator_email: input.google_email,
       }),
     });
     if (!res.ok) {
       throw new Error(`eternitas auto-hatch failed: ${res.status} ${await res.text()}`);
     }
-    const data = (await res.json()) as Partial<EternitasBlock>;
+    const data = (await res.json()) as AutoHatchResponse;
     return {
-      ept: data.ept!,
-      passport: data.passport!,
-      operator_id: data.operator_id!,
-      clearance_level: data.clearance_level ?? "registered",
-      integrity_band: data.integrity_band ?? "fair",
+      ept: data.ept_token,
+      passport: data.passport,
+      operator_id: decodeEptOperatorId(data.ept_token) || `op_unknown_${data.passport}`,
+      // Eternitas auto-hatch grants the lowest clearance by design; verified
+      // agents earn higher levels through the Authenticator flow (out of scope
+      // for the bootstrap pair).
+      clearance_level: "registered",
+      integrity_band: mapTrustScoreToBand(data.trust_score),
       jwks_url: `${env.ETERNITAS_API_URL}/.well-known/eternitas-keys`,
       revocation_check_url: `${env.ETERNITAS_API_URL}/api/v1/passports/${data.passport}/status`,
     };
