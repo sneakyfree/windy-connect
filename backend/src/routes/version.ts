@@ -16,7 +16,7 @@
 
 import type { Env } from "../index";
 
-const VERSION = "0.3.0";
+const VERSION = "0.3.1";
 
 export async function handleVersion(_req: Request, env: Env): Promise<Response> {
   const body = {

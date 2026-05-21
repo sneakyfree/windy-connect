@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-05-21
+
+### Added
+- **`windy refresh` CLI command** — re-mint the bundle before it expires
+  using the existing EPT to authenticate. Re-applies the fresh credentials
+  to every detected runtime in place (idempotent, marker-bounded). Saves
+  the new state.
+- **`POST /v1/bundle/refresh`** on the Worker. Body: `{ept, tier?}`. The
+  Worker decodes the EPT's claims (sub, email, exp), re-runs
+  `provisionBundle()`, and returns a fresh bundle. Sandbox EPTs are
+  accepted without signature verification; real EPTs are trusted by
+  claim today (TODO: verify against eternitas JWKS — documented in
+  SECURITY.md known trade-offs).
+- Refused with HTTP 410 `ept_too_stale` if the old EPT expired more than
+  7 days ago — at that point user should re-pair, not refresh.
+
+### Known limitations
+- In real mode, refresh currently calls Eternitas auto-hatch again,
+  which mints a NEW agent (different passport). This is
+  "refresh-as-recreation" not true EPT renewal. Documented in
+  `docs/upstream-gaps.md`. True renewal needs an Eternitas
+  `/api/v1/passports/<id>/renew` endpoint that's TBD.
+
 ## [0.3.0] — 2026-05-21
 
 ### Added

@@ -315,6 +315,55 @@ def doctor() -> None:
 
 
 @app.command()
+def refresh() -> None:
+    """Re-mint your bundle before it expires (uses your current EPT to authenticate).
+
+    Run this when ``windy status`` warns that your bundle expires soon. The
+    server uses the existing EPT to identify you and returns a fresh bundle
+    with the same email; writers re-apply it to every detected agent
+    in place (idempotent, marker-bounded).
+    """
+    state = state_mod.load()
+    if state is None:
+        console.print("[red]Not connected — nothing to refresh. Run `windy connect`.[/]")
+        raise typer.Exit(1)
+
+    current_bundle = state.bundle
+    if not current_bundle.eternitas:
+        console.print(
+            "[yellow]Current bundle has no Eternitas EPT.[/] "
+            "Anonymous-tier bundles can't be refreshed — run `windy connect` instead."
+        )
+        raise typer.Exit(1)
+
+    from . import orchestrator
+
+    console.print(f"Refreshing bundle for [cyan]{current_bundle.eternitas.passport}[/]…")
+    try:
+        fresh = orchestrator.refresh_bundle(current_bundle)
+    except OrchestratorError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(2) from exc
+
+    # Re-apply the fresh bundle to every previously-touched runtime.
+    detected_now = [a for a in detect_all() if a.detected]
+    results = _apply_bundle(fresh, detected_now, dry_run=False)
+    successful = [r for r in results if r.error is None]
+    state_mod.save(
+        State(
+            connected_at=datetime.now(UTC),
+            bundle=fresh,
+            writes=successful,
+        )
+    )
+    _print_write_summary(results, dry_run=False)
+    console.print(
+        f"[bold green]Refreshed.[/] New expiry: "
+        f"[cyan]{fresh.expires_at.strftime('%Y-%m-%d')}[/]"
+    )
+
+
+@app.command()
 def version() -> None:
     """Print the windy CLI version."""
     console.print(f"windy {__version__}")

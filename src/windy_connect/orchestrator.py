@@ -126,3 +126,47 @@ def connect_via_orchestrator(tier: str, *, open_browser: bool = True) -> Bundle:
     """Convenience wrapper: init + poll."""
     session = init_device(tier)
     return poll_until_paired(session, open_browser=open_browser)
+
+
+def refresh_bundle(current_bundle: Bundle, *, tier: str | None = None) -> Bundle:
+    """Re-mint a bundle for an already-paired identity.
+
+    Sends the current bundle's EPT to /v1/bundle/refresh. The Worker
+    extracts the email/passport claims, re-runs provisioning, and
+    returns a fresh bundle with the same identity (sandbox mode) or
+    a fresh agent (real mode — see backend/src/routes/bundle.ts for
+    the trade-off note on "refresh-as-recreation").
+
+    Raises OrchestratorError on any non-200, including 410 (EPT too
+    stale to refresh — user must re-pair).
+    """
+    if not current_bundle.eternitas:
+        raise OrchestratorError(
+            "current bundle has no Eternitas block — refresh requires an EPT to authenticate. "
+            "Run `windy connect` to pair fresh."
+        )
+    payload: dict = {"ept": current_bundle.eternitas.ept}
+    if tier:
+        payload["tier"] = tier
+    try:
+        res = httpx.post(
+            f"{api_url()}/v1/bundle/refresh",
+            json=payload,
+            timeout=30.0,
+        )
+    except httpx.HTTPError as exc:
+        raise OrchestratorError(f"refresh failed: could not reach orchestrator: {exc}") from exc
+
+    if res.status_code == 200:
+        bundle_dict = res.json().get("bundle")
+        if not bundle_dict:
+            raise OrchestratorError("orchestrator returned 200 without a bundle")
+        return Bundle.model_validate(bundle_dict)
+
+    payload_body = res.json() if res.headers.get("content-type", "").startswith("application/json") else {}
+    err = payload_body.get("error", f"http_{res.status_code}")
+    if err == "ept_too_stale":
+        raise OrchestratorError(
+            "your bundle expired more than a week ago; run `windy connect` to re-pair"
+        )
+    raise OrchestratorError(f"refresh failed: {err} — {payload_body.get('error_description', '')}")
