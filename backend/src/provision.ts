@@ -32,12 +32,15 @@ export async function provisionBundle(env: Env, input: ProvisionInput): Promise<
   const now = new Date();
   const expires = new Date(now.getTime() + BUNDLE_TTL_DAYS * 24 * 3600 * 1000);
 
+  // Eternitas runs FIRST (sequentially) — Mail's real provisioning path
+  // requires the issued passport + operator_id. The other three blocks
+  // depend on no Eternitas state and run in parallel after.
   const eternitas = input.tier === "credentialed"
     ? await provisionEternitas(env, input, real)
     : undefined;
 
   const [windy_mail, windy_chat, windy_mind] = await Promise.all([
-    provisionMail(env, input, real),
+    provisionMail(env, input, real, eternitas),
     provisionChat(env, input, real),
     provisionMind(env, input, real),
   ]);
@@ -169,56 +172,107 @@ async function provisionEternitas(
 // Stalwart's docs: https://stalw.art/docs/management/principal/individual
 // ---------------------------------------------------------------------------
 
+// Stalwart 0.16 removed the REST /api/principal/* surface this used to
+// hit directly. windy-mail's FastAPI now owns the admin path: it talks
+// JMAP-admin to Stalwart, manages the Fernet-encrypted JMAP password
+// brokered for the agent, and writes the account row to its own DB. We
+// just hand it the Eternitas passport + agent_name and take back the
+// IMAP/SMTP/JMAP block.
+//
+// REAL endpoint: POST {WINDY_MAIL_API_URL}/api/v1/provision/bot
+//   headers: X-Service-Token: $WINDY_MAIL_SERVICE_TOKEN
+//   body: { eternitas_passport, agent_name, owner_id }
+//   returns 201 with: { account_id, email, imap_host/port, smtp_host/port,
+//                       jmap_url, username, password, jmap_token, tier }
+
+interface MailProvisionResponse {
+  account_id: string;
+  email: string;
+  imap_host: string;
+  imap_port: number;
+  smtp_host: string;
+  smtp_port: number;
+  jmap_url: string;
+  username: string;
+  password: string;
+  jmap_token: string;
+  tier: string;
+}
+
 async function provisionMail(
   env: Env,
   input: ProvisionInput,
   real: boolean,
+  eternitas?: EternitasBlock,
 ): Promise<MailBlock> {
   const localpart = sanitizeLocalpart(input.google_email);
-  const address = `${localpart}@windymail.ai`;
-  const password = real ? randomPassword(24) : `sandbox-pass-${localpart}`;
 
-  if (real) {
-    if (!env.STALWART_ADMIN_PASS) {
-      throw new Error("STALWART_ADMIN_PASS secret is unset");
+  // Real provisioning needs a passport — Mail's BotProvisionRequest
+  // requires `eternitas_passport`. Free-tier (no Eternitas) falls back
+  // to sandbox values; that's the right user-visible behavior since
+  // free-tier agents aren't bound to a passport in the bundle either.
+  if (real && eternitas) {
+    if (!env.WINDY_MAIL_SERVICE_TOKEN) {
+      throw new Error("WINDY_MAIL_SERVICE_TOKEN secret is unset");
     }
-    const auth = "Basic " + btoa(`${env.STALWART_ADMIN_USER}:${env.STALWART_ADMIN_PASS}`);
-    const res = await fetch(`${env.STALWART_ADMIN_URL}/api/principal/${encodeURIComponent(localpart)}`, {
-      method: "PUT",
-      headers: { authorization: auth, "content-type": "application/json" },
+    const mailApi = env.WINDY_MAIL_API_URL ?? "https://api.windymail.ai";
+    const res = await fetch(`${mailApi}/api/v1/provision/bot`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "X-Service-Token": env.WINDY_MAIL_SERVICE_TOKEN,
+      },
       body: JSON.stringify({
-        type: "individual",
-        name: localpart,
-        secrets: [password],
-        emails: [address],
-        description: `Windy Connect agent for ${input.google_email}`,
+        eternitas_passport: eternitas.passport,
+        agent_name: localpart,
+        owner_id: eternitas.operator_id || `op_unknown_${eternitas.passport}`,
       }),
     });
-    if (!res.ok && res.status !== 409) { // 409 = already exists, fine for re-pair
-      throw new Error(`stalwart provision failed: ${res.status} ${await res.text()}`);
+    if (!res.ok) {
+      throw new Error(`mail provision failed: ${res.status} ${await res.text()}`);
     }
+    const data = (await res.json()) as MailProvisionResponse;
+    return {
+      address: data.email,
+      display_name: data.username,
+      imap: {
+        host: data.imap_host,
+        port: data.imap_port,
+        tls: "implicit",
+        username: data.username,
+        password: data.password,
+      },
+      smtp: {
+        host: data.smtp_host,
+        port: data.smtp_port,
+        tls: "starttls",
+        username: data.username,
+        password: data.password,
+      },
+      jmap: {
+        endpoint: data.jmap_url,
+        account_id: data.account_id,
+        username: data.username,
+        // jmap_token is the Fernet-encrypted Stalwart password — the agent
+        // can use it as basic-auth on JMAP without ever seeing the raw
+        // Stalwart secret. See windy-mail/api/app/services/stalwart_password.py.
+        password: data.jmap_token,
+      },
+    };
   }
 
+  // Sandbox path: deterministic values that match the prod hostnames so
+  // the agent's config layout is identical between sandbox and real.
+  const address = `${localpart}@windymail.ai`;
+  const password = `sandbox-pass-${localpart}`;
   return {
     address,
     display_name: localpart,
-    imap: {
-      host: "imap.windymail.ai",
-      port: 993,
-      tls: "implicit",
-      username: address,
-      password,
-    },
-    smtp: {
-      host: "smtp.windymail.ai",
-      port: 587,
-      tls: "starttls",
-      username: address,
-      password,
-    },
+    imap: { host: "imap.windymail.ai", port: 993, tls: "implicit", username: address, password },
+    smtp: { host: "smtp.windymail.ai", port: 587, tls: "starttls", username: address, password },
     jmap: {
       endpoint: "https://jmap.windymail.ai/jmap",
-      account_id: real ? `u_${localpart}` : `u_sandbox_${localpart}`,
+      account_id: `u_sandbox_${localpart}`,
       username: address,
       password,
     },
@@ -242,10 +296,19 @@ async function provisionChat(
   const localpart = sanitizeLocalpart(input.google_email);
   const matrix_user_id = `@${localpart}:windychat.ai`;
 
-  if (real) {
-    // TODO: real provisioning blocked until Synapse admin token is captured.
+  // Wave B compromise: when ENABLE_REAL_PROVISIONING=true but
+  // SYNAPSE_ADMIN_TOKEN is absent, we fall back to sandbox values for
+  // Chat rather than failing the entire bundle. This lets Mail+Mind go
+  // real independently of Wave C (which has to land an nginx exposure
+  // change on the chat.windychat.ai EC2 before /_synapse/admin/* is
+  // reachable from the Worker — see ACCESS_LOCKBOX.md Phase 4 notes).
+  //
+  // Once Wave C ships, the real branch below kicks in automatically as
+  // soon as SYNAPSE_ADMIN_TOKEN is set on the Worker. The opt-in shape
+  // (token-presence) keeps the failure mode explicit instead of silent.
+  if (real && env.SYNAPSE_ADMIN_TOKEN) {
     throw new Error(
-      "synapse provisioning not yet wired — set SYNAPSE_ADMIN_TOKEN and implement provision.ts:provisionChat",
+      "synapse provisioning not yet wired — Wave C must land nginx exposure before this branch is exercised",
     );
   }
 
@@ -261,27 +324,68 @@ async function provisionChat(
 // ---------------------------------------------------------------------------
 // Windy Mind — issue a per-user OpenAI-compatible API key.
 //
-// TODO: Mind needs an admin /keys endpoint that issues scoped keys (rate-limit
-// tied to tier). Currently Mind has a single shared key. Track in mind#TBD.
+// REAL endpoint: POST {WINDY_MIND_API_URL}/admin/keys
+//   Authorization: Bearer $MIND_ADMIN_TOKEN
+//   body: { subject_email, tier }
+//   returns 201 with: { key, key_id, subject_email, tier, created_at,
+//                       expires_at, issued_by }
+//   The `key` is a `wm_*` token returned ONCE — we embed it in the
+//   bundle's `windy_mind.api_key`. Shipped in windy-mind PR #38
+//   (sneakyfree/windy-mind feat/admin-keys-issuance).
 // ---------------------------------------------------------------------------
+
+interface MindIssueResponse {
+  key: string;
+  key_id: string;
+  subject_email: string;
+  tier: string;
+  created_at: string;
+  expires_at: string | null;
+  issued_by: string;
+}
 
 async function provisionMind(
   env: Env,
   input: ProvisionInput,
   real: boolean,
 ): Promise<OpenAICompatibleMind> {
+  const mindApi = env.WINDY_MIND_API_URL ?? "https://api.windymind.ai";
+
   if (real) {
-    throw new Error(
-      "mind provisioning not yet wired — Mind needs per-user key issuance endpoint",
-    );
+    if (!env.MIND_ADMIN_TOKEN) {
+      throw new Error("MIND_ADMIN_TOKEN secret is unset");
+    }
+    const res = await fetch(`${mindApi}/admin/keys`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${env.MIND_ADMIN_TOKEN}`,
+      },
+      body: JSON.stringify({
+        subject_email: input.google_email,
+        tier: input.tier === "credentialed" ? "credentialed" : "free",
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(`mind /admin/keys failed: ${res.status} ${await res.text()}`);
+    }
+    const data = (await res.json()) as MindIssueResponse;
+    return {
+      kind: "openai-compatible",
+      base_url: `${mindApi}/v1`,
+      api_key: data.key,
+      default_model: "windy-mind-auto",
+      models_endpoint: `${mindApi}/v1/models`,
+    };
   }
+
   const localpart = sanitizeLocalpart(input.google_email);
   return {
     kind: "openai-compatible",
-    base_url: "https://api.windymind.ai/v1",
+    base_url: `${mindApi}/v1`,
     api_key: `wm_sandbox_${localpart}`,
     default_model: "windy-mind-auto",
-    models_endpoint: "https://api.windymind.ai/v1/models",
+    models_endpoint: `${mindApi}/v1/models`,
   };
 }
 

@@ -41,12 +41,20 @@ export interface Env {
   ISSUER_URL: string; // brand identity (windyconnect.com) — used for bundle.issuer.url
   API_BASE_URL: string; // Worker-served host (api.windyconnect.com) — used for verification_uri + OAuth redirect
 
+  // Wave B: prefer the windy-mail HTTP API over direct Stalwart admin —
+  // it handles the JMAP-admin dance (Stalwart 0.16 dropped the REST /api/*
+  // surface the Worker was talking to) and gives us back IMAP/SMTP/JMAP
+  // creds the agent can use directly.
+  WINDY_MAIL_API_URL?: string;   // defaults to https://api.windymail.ai
+  WINDY_MIND_API_URL?: string;   // defaults to https://api.windymind.ai
+
   // Build-time injected by backend/scripts/deploy.sh (optional — /version falls back if unset)
   COMMIT_SHA?: string;
   DEPLOYED_AT?: string;
 
   // Secrets (set with `wrangler secret put`)
   STALWART_ADMIN_PASS?: string;
+  WINDY_MAIL_SERVICE_TOKEN?: string; // X-Service-Token on /api/v1/provision/bot
   GOOGLE_OAUTH_CLIENT_ID?: string;
   GOOGLE_OAUTH_CLIENT_SECRET?: string;
   SYNAPSE_ADMIN_TOKEN?: string;
