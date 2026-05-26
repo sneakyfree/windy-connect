@@ -23,6 +23,7 @@ import type { Env } from "../index";
 import { json } from "../index";
 import { provisionBundle } from "../provision";
 import type { Tier } from "../types";
+import { verifyEpt } from "../eternitas_jwks";
 
 interface RefreshRequest {
   ept?: string;
@@ -74,9 +75,25 @@ export async function handleBundleRefresh(req: Request, env: Env): Promise<Respo
   const isSandbox = ept.startsWith("sandbox-") || claims.kid === "mock";
 
   if (!isSandbox) {
-    // TODO: verify signature against {ETERNITAS_API_URL}/.well-known/eternitas-keys
-    // For now we trust the claims — accept the risk in this transitional period.
-    // Documented in SECURITY.md known trade-offs.
+    // Wave F: actually verify the signature against the Eternitas JWKS
+    // before trusting the email + sub claims. Before this, anyone with
+    // a base64-encoded JSON payload could refresh someone else's bundle
+    // — the route just parsed the JWT, never validated it.
+    const verify = await verifyEpt(env, ept);
+    if (!verify.ok) {
+      return json(
+        {
+          error: "invalid_ept_signature",
+          error_description: verify.reason,
+        },
+        401,
+      );
+    }
+    // Re-bind claims to the verified payload so a malformed pre-decode
+    // can't sneak email/sub through. (decodeJwtClaims and verifyEpt
+    // share the same parse logic, but using the verified result is the
+    // tighter contract.)
+    Object.assign(claims, verify.claims);
   }
 
   if (claims.exp && claims.exp * 1000 < Date.now() - 7 * 86400 * 1000) {
