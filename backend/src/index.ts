@@ -63,6 +63,13 @@ export interface Env {
   MIND_ADMIN_TOKEN?: string;
   MAGIC_LINK_SIGNING_KEY?: string; // 32-byte hex; HS256 signs the magic-link JWT
   RESEND_API_KEY?: string;         // Resend full-access key for transactional email
+
+  // Wave E: pair-verified webhook to account-server. When both are set,
+  // a successful pair fires `POST $WINDY_PRO_ACCOUNT_SERVER_URL/api/v1/
+  // identity/connect/paired` signed with $WINDY_CONNECT_WEBHOOK_SECRET
+  // so the dashboard flips the Windy Connect tile to Active.
+  WINDY_PRO_ACCOUNT_SERVER_URL?: string;
+  WINDY_CONNECT_WEBHOOK_SECRET?: string;
 }
 
 export { DeviceSessions } from "./sessions_do";

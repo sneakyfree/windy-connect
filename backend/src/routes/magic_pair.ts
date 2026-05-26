@@ -162,6 +162,40 @@ export async function handlePairVerify(req: Request, env: Env): Promise<Response
   session.bundle = bundle;
   await putSession(env, session);
 
+  // Wave E: notify the windy-pro account-server so the user's dashboard
+  // tile flips from "Available" to "Active". Best-effort — a webhook
+  // failure must NOT block the pair flow (the agent still has its
+  // bundle; the dashboard is a cosmetic surface). We log the failure
+  // and move on.
+  if (env.WINDY_CONNECT_WEBHOOK_SECRET && env.WINDY_PRO_ACCOUNT_SERVER_URL) {
+    const issued_at = bundle.issued_at;
+    const sig = await hmacSha256Hex(env.WINDY_CONNECT_WEBHOOK_SECRET, `${email}:${issued_at}`);
+    try {
+      const res = await fetch(`${env.WINDY_PRO_ACCOUNT_SERVER_URL}/api/v1/identity/connect/paired`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email,
+          issued_at,
+          bundle_version: bundle.bundle_version,
+          signature: sig,
+        }),
+      });
+      if (!res.ok) {
+        console.warn(JSON.stringify({
+          event: "pair_webhook_failed",
+          status: res.status,
+          body: (await res.text()).slice(0, 200),
+        }));
+      }
+    } catch (e) {
+      console.warn(JSON.stringify({
+        event: "pair_webhook_error",
+        error: e instanceof Error ? e.message : String(e),
+      }));
+    }
+  }
+
   console.log(JSON.stringify({
     event: "pair_verified",
     user_code,
@@ -170,6 +204,20 @@ export async function handlePairVerify(req: Request, env: Env): Promise<Response
   }));
 
   return renderResultPage("ok", "Your agent is paired. Return to your terminal — it's now talking to the Windy ecosystem.");
+}
+
+async function hmacSha256Hex(secret: string, message: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sigBuf = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+  return Array.from(new Uint8Array(sigBuf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 // ---------------------------------------------------------------------------
