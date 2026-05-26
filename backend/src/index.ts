@@ -25,6 +25,7 @@ import { handlePair } from "./routes/pair";
 import { handleSkillsIndex, handleSkillMd } from "./routes/skills";
 import { handleVersion } from "./routes/version";
 import { handlePairStart, handlePairVerify } from "./routes/magic_pair";
+import { handleStatusHtml, handleStatusJson } from "./routes/status";
 // @ts-expect-error wrangler text-loader inlines the install script
 import installSh from "../../installer/install.sh";
 
@@ -108,7 +109,20 @@ export default {
         return Response.redirect(new URL("/pair", url).toString(), 302);
       }
       if (url.pathname === "/healthz") {
+        // Liveness only — no upstream probes. Cloudflare LB uses this to
+        // keep us in rotation; a downstream outage must NOT flap us out.
         return json({ ok: true, ts: new Date().toISOString() });
+      }
+      if (url.pathname === "/v1/status" && req.method === "GET") {
+        // Deep readiness — probes every configured upstream in parallel.
+        // Always 200; the caller reads `overall` to decide pass/fail.
+        return handleStatusJson(env);
+      }
+      if (url.pathname === "/status" && req.method === "GET") {
+        // Human-readable status page (auto-refresh every 60s). Suitable
+        // for status.windyconnect.com via a Workers route once the
+        // subdomain is provisioned.
+        return handleStatusHtml(env);
       }
       if (url.pathname === "/version" && req.method === "GET") {
         return handleVersion(req, env);
