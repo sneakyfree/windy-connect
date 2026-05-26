@@ -147,7 +147,12 @@ export async function verifyEpt(env: Env, jwt: string): Promise<VerifyResult> {
   if (parts.length !== 3) {
     return { ok: false, reason: "malformed JWT (expected 3 parts)" };
   }
-  const [headerB64, payloadB64, signatureB64] = parts;
+  // Non-null asserts: parts.length === 3 above guarantees these exist.
+  // TS's tuple-index narrowing doesn't follow length checks across an
+  // assignment, so the asserts are the minimal way to satisfy strict mode.
+  const headerB64 = parts[0]!;
+  const payloadB64 = parts[1]!;
+  const signatureB64 = parts[2]!;
 
   let header: JwtHeader;
   let claims: DecodedEpt;
