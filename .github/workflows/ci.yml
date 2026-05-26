@@ -6,8 +6,12 @@ name: CI
 on:
   push:
     branches: [main]
+  # Drop `branches:` filter on pull_request so stacked PRs (waves b→c→e→…)
+  # whose base is another wave-branch (not main) still get CI. With the
+  # filter restricted to [main], PRs #2–#7 of the wave train silently
+  # ran zero checks. Per feedback_stacked_pr_pattern this is the canonical
+  # workflow shape for this ecosystem.
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
