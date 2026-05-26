@@ -288,6 +288,28 @@ async function provisionMail(
 // TODO: SYNAPSE_ADMIN_TOKEN is not yet in kit-army-config — bootstrap one and add.
 // ---------------------------------------------------------------------------
 
+// Wave C: real Synapse provisioning. The Worker calls two admin endpoints:
+//
+//   1. PUT  /_synapse/admin/v2/users/@<localpart>:windychat.ai
+//        Bearer + JSON {password, admin: false, deactivated: false}
+//        Creates the user (idempotent — re-PUT just updates).
+//   2. POST /_synapse/admin/v1/users/@<localpart>:windychat.ai/login
+//        Bearer (empty JSON body)
+//        Mints a long-lived access_token AS the user. We return THIS
+//        token in the bundle, never the admin token — the agent
+//        authenticates as itself, not as windy-connect-admin.
+//
+// Both calls go through the nginx gateway in chat.windychat.ai.conf
+// (Wave C, sneakyfree/windy-chat PR #82) which requires the
+// X-Windy-Connect-Admin-Token header on top of the Bearer. Two
+// independent secrets — leaking either alone doesn't grant admin.
+
+interface SynapseLoginResponse {
+  access_token: string;
+  device_id?: string;
+  user_id: string;
+}
+
 async function provisionChat(
   env: Env,
   input: ProvisionInput,
@@ -296,20 +318,69 @@ async function provisionChat(
   const localpart = sanitizeLocalpart(input.google_email);
   const matrix_user_id = `@${localpart}:windychat.ai`;
 
-  // Wave B compromise: when ENABLE_REAL_PROVISIONING=true but
-  // SYNAPSE_ADMIN_TOKEN is absent, we fall back to sandbox values for
-  // Chat rather than failing the entire bundle. This lets Mail+Mind go
-  // real independently of Wave C (which has to land an nginx exposure
-  // change on the chat.windychat.ai EC2 before /_synapse/admin/* is
-  // reachable from the Worker — see ACCESS_LOCKBOX.md Phase 4 notes).
-  //
-  // Once Wave C ships, the real branch below kicks in automatically as
-  // soon as SYNAPSE_ADMIN_TOKEN is set on the Worker. The opt-in shape
-  // (token-presence) keeps the failure mode explicit instead of silent.
-  if (real && env.SYNAPSE_ADMIN_TOKEN) {
-    throw new Error(
-      "synapse provisioning not yet wired — Wave C must land nginx exposure before this branch is exercised",
+  // Real branch opt-in: BOTH Synapse secrets must be present. Missing
+  // SYNAPSE_ADMIN_GATEWAY_TOKEN → nginx would 403; missing
+  // SYNAPSE_ADMIN_TOKEN → Synapse would 401. Falling back to sandbox
+  // in those cases keeps the rest of the bundle deployable while the
+  // gateway is still being rolled out on EC2.
+  if (real && env.SYNAPSE_ADMIN_TOKEN && env.SYNAPSE_ADMIN_GATEWAY_TOKEN) {
+    const base = env.WINDY_CHAT_HOMESERVER_URL ?? "https://chat.windychat.ai";
+    const userId = matrix_user_id;
+    const password = randomPassword(32);
+
+    // 1. Create-or-update the user. 200 (existing) or 201 (new) — both
+    //    are fine for re-pair.
+    const createRes = await fetch(
+      `${base}/_synapse/admin/v2/users/${encodeURIComponent(userId)}`,
+      {
+        method: "PUT",
+        headers: {
+          authorization: `Bearer ${env.SYNAPSE_ADMIN_TOKEN}`,
+          "X-Windy-Connect-Admin-Token": env.SYNAPSE_ADMIN_GATEWAY_TOKEN,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          password,
+          admin: false,
+          deactivated: false,
+          displayname: localpart,
+        }),
+      },
     );
+    if (!createRes.ok) {
+      throw new Error(
+        `synapse user create failed: ${createRes.status} ${await createRes.text()}`,
+      );
+    }
+
+    // 2. Mint an access_token AS the user. The admin login endpoint
+    //    issues a token without the user's password.
+    const loginRes = await fetch(
+      `${base}/_synapse/admin/v1/users/${encodeURIComponent(userId)}/login`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${env.SYNAPSE_ADMIN_TOKEN}`,
+          "X-Windy-Connect-Admin-Token": env.SYNAPSE_ADMIN_GATEWAY_TOKEN,
+          "content-type": "application/json",
+        },
+        body: "{}",
+      },
+    );
+    if (!loginRes.ok) {
+      throw new Error(
+        `synapse admin login failed: ${loginRes.status} ${await loginRes.text()}`,
+      );
+    }
+    const login = (await loginRes.json()) as SynapseLoginResponse;
+
+    return {
+      kind: "matrix",
+      homeserver: base,
+      matrix_user_id: userId,
+      access_token: login.access_token,
+      device_id: login.device_id ?? "WINDY_CONNECT",
+    };
   }
 
   return {

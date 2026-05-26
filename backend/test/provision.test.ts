@@ -299,6 +299,155 @@ describe("provisionBundle — real paths", () => {
   });
 });
 
+describe("provisionBundle — Chat real path (Wave C)", () => {
+  beforeEach(() => {
+    vi.spyOn(globalThis, "fetch");
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("with both Synapse secrets: PUTs the user, POSTs admin login, returns the user's access_token (not the admin token)", async () => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      async (url: string, init?: RequestInit) => {
+        calls.push({ url, init });
+        if (url.endsWith("/admin/keys")) {
+          return new Response(
+            JSON.stringify({
+              key: "wm_x_y",
+              key_id: "x",
+              subject_email: "u@x.com",
+              tier: "free",
+              created_at: "2026-05-21T00:00:00Z",
+              expires_at: null,
+              issued_by: "windy-connect-orchestrator",
+            }),
+            { status: 201 },
+          );
+        }
+        if (url.includes("/_synapse/admin/v2/users/")) {
+          return new Response("{}", { status: 200 });
+        }
+        if (url.includes("/_synapse/admin/v1/users/") && url.endsWith("/login")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "syt_real_user_token",
+              device_id: "WINDY_CONNECT",
+              user_id: "@u:windychat.ai",
+            }),
+            { status: 200 },
+          );
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      },
+    );
+
+    const env = baseEnv({
+      SYNAPSE_ADMIN_TOKEN: "syt_admin_token",
+      SYNAPSE_ADMIN_GATEWAY_TOKEN: "gateway-token-123",
+    });
+
+    const bundle = await provisionBundle(env, {
+      tier: "free",
+      google_email: "u@x.com",
+      google_sub: "g1",
+    });
+
+    const userCreate = calls.find((c) => c.url.includes("/_synapse/admin/v2/"));
+    const userLogin = calls.find((c) => c.url.endsWith("/login"));
+    expect(userCreate).toBeDefined();
+    expect(userLogin).toBeDefined();
+
+    // Both Synapse calls send BOTH the Bearer and the gateway token —
+    // two independent secrets, neither alone grants admin.
+    expect(userCreate!.init?.headers).toMatchObject({
+      authorization: "Bearer syt_admin_token",
+      "X-Windy-Connect-Admin-Token": "gateway-token-123",
+    });
+    expect(userLogin!.init?.headers).toMatchObject({
+      authorization: "Bearer syt_admin_token",
+      "X-Windy-Connect-Admin-Token": "gateway-token-123",
+    });
+
+    // The bundle carries the USER's token, not the admin token.
+    expect(bundle.windy_chat?.access_token).toBe("syt_real_user_token");
+    expect(bundle.windy_chat?.access_token).not.toBe("syt_admin_token");
+    expect(bundle.windy_chat?.matrix_user_id).toBe("@u:windychat.ai");
+  });
+
+  it("gateway token missing → falls back to sandbox without calling Synapse", async () => {
+    let synapseCalled = false;
+    (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      async (url: string) => {
+        if (url.includes("/_synapse/admin/")) synapseCalled = true;
+        if (url.endsWith("/admin/keys")) {
+          return new Response(
+            JSON.stringify({
+              key: "wm_x_y",
+              key_id: "x",
+              subject_email: "u@x.com",
+              tier: "free",
+              created_at: "2026-05-21T00:00:00Z",
+              expires_at: null,
+              issued_by: "windy-connect-orchestrator",
+            }),
+            { status: 201 },
+          );
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      },
+    );
+
+    // SYNAPSE_ADMIN_TOKEN set, SYNAPSE_ADMIN_GATEWAY_TOKEN unset.
+    // Both must be present to opt in to the real branch.
+    const env = baseEnv({
+      SYNAPSE_ADMIN_TOKEN: "syt_admin_token",
+      SYNAPSE_ADMIN_GATEWAY_TOKEN: undefined,
+    });
+    const bundle = await provisionBundle(env, {
+      tier: "free",
+      google_email: "u@x.com",
+      google_sub: "g1",
+    });
+    expect(synapseCalled).toBe(false);
+    expect(bundle.windy_chat?.access_token).toBe("syt_sandbox_u");
+  });
+
+  it("Synapse 5xx → error surfaces upstream status + body for ops triage", async () => {
+    (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      async (url: string) => {
+        if (url.endsWith("/admin/keys")) {
+          return new Response(
+            JSON.stringify({
+              key: "wm_x_y",
+              key_id: "x",
+              subject_email: "u@x.com",
+              tier: "free",
+              created_at: "2026-05-21T00:00:00Z",
+              expires_at: null,
+              issued_by: "windy-connect-orchestrator",
+            }),
+            { status: 201 },
+          );
+        }
+        if (url.includes("/_synapse/admin/v2/")) {
+          return new Response("Synapse: postgres down", { status: 502 });
+        }
+        return new Response("{}", { status: 200 });
+      },
+    );
+
+    const env = baseEnv({
+      SYNAPSE_ADMIN_TOKEN: "syt",
+      SYNAPSE_ADMIN_GATEWAY_TOKEN: "gw",
+    });
+    await expect(
+      provisionBundle(env, { tier: "free", google_email: "u@x.com", google_sub: "g" }),
+    ).rejects.toThrow(/synapse user create failed: 502/);
+  });
+});
+
 describe("provisionBundle — sandbox path", () => {
   it("ENABLE_REAL_PROVISIONING=false produces sandbox-marked bundles with no outbound fetches", async () => {
     const spy = vi.spyOn(globalThis, "fetch");
