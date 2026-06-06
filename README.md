@@ -77,32 +77,38 @@ Point the CLI at a non-default orchestrator with `WINDY_CONNECT_API_URL=https://
 
 ## Status
 
-**Pre-alpha — full local lifecycle works against a mock bundle.** Real OAuth orchestrator backend not yet deployed. Try it:
+**0.3.1 — published to PyPI; orchestrator Worker live at `api.windyconnect.com`.** The full local lifecycle works end-to-end, and `windy connect` mints a real bundle against the deployed orchestrator (Sign-in-with-Google + device-code OAuth). A `--mock` path is still available for offline development. Try it:
 
 ```bash
-pip install -e .
-windy connect --mock        # provision + write configs + persist state
-windy status                # show what's wired
-windy doctor                # run diagnostics against the current connection
-windy disconnect            # reverse everything cleanly
+pip install windy-connect       # or `pip install -e .` from a checkout
+windy connect                   # real flow: sign in, provision, write configs, persist state
+windy connect --mock            # offline: provision + write configs against a mock bundle
+windy status                    # show what's wired
+windy doctor                    # run diagnostics against the current connection
+windy refresh                   # re-mint the bundle before it expires
+windy disconnect                # reverse everything cleanly
 ```
 
 State is persisted to `~/.windy/state.json` (mode 0600). Disconnect deletes owned files and strips marker-bounded blocks from shared config files (e.g., Himalaya's `config.toml`) without touching the user's other accounts.
 
-Test suite: `pytest` — 48 tests covering bundle parsing, state round-trip, every writer in dry-run + wet mode, doctor diagnostics, and full CLI lifecycle.
+Test suites:
+- **CLI** — `pytest tests/` — 60 tests covering bundle parsing, state round-trip, every writer in dry-run + wet mode, doctor diagnostics, refresh, and full CLI lifecycle.
+- **Worker** — `cd backend && npm test` (vitest) — 26 tests covering provisioning, status, and Eternitas JWKS handling.
 
 The bundle spec is v1-draft. ADR-052 is Accepted (canonical home: `~/kit-army-config/docs/adr-052-two-tier-ecosystem-access-2026-05-20.md`).
 
 ## What's next
 
-See the open issues / project board (once GitHub repo exists).
+See the open issues / project board on GitHub. Wave-by-wave delivery status lives in [WAVE-STATUS.md](WAVE-STATUS.md).
 
-Immediate roadmap:
-1. **`windy connect` CLI MVP** — interactive flow, auto-detection of OpenClaw + Ollama + Claude Code + generic, writes configs to the right places
-2. **`/agents/connect` orchestrator backend** — Sign-in-with-Google → mints Eternitas EPT → provisions Mail mailbox → provisions Chat identity → returns the bundle
+Shipped foundations (0.x):
+1. **`windy connect` CLI** — interactive flow, auto-detection of OpenClaw + Ollama + Claude Code + generic, writes configs to the right places
+2. **Orchestrator backend** — Sign-in-with-Google → mints Eternitas EPT → provisions Mail mailbox → provisions Chat identity → returns the bundle (live at `api.windyconnect.com`)
 3. **`get.windyconnect.com` installer** — one-line bootstrap that installs the CLI
 4. **`windyconnect.com/pair` browser flow** — the page the CLI opens for the user to sign in
 5. **OpenClaw ClawHub skill** — `windy-access` skill on ClawHub for discoverability inside the OpenClaw community
+
+Remaining: hardening real-provisioning paths per upstream service (see [docs/upstream-gaps.md](docs/upstream-gaps.md)) and verifying real EPTs against the Eternitas JWKS.
 
 ## Naming
 

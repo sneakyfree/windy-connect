@@ -1,0 +1,107 @@
+name: Prod drift check
+
+# Compares the deployed orchestrator Worker's /version commit_sha against
+# the current origin/main HEAD and fails if they differ — i.e. main has
+# moved ahead of (or diverged from) what's actually live at
+# api.windyconnect.com.
+#
+# The Worker bakes COMMIT_SHA = `git rev-parse HEAD` at deploy time (see
+# backend/scripts/deploy.sh) and exposes it at GET /version per the
+# ecosystem version-endpoint contract. So a green check here means
+# "production is serving exactly main HEAD"; a red check means someone
+# merged to main without (re)deploying the backend.
+#
+# Runs on a schedule, on every push to main (so a merge that forgets to
+# deploy goes red within minutes), and on demand.
+
+on:
+  schedule:
+    # Every 6 hours, on the hour.
+    - cron: '0 */6 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    name: Worker /version vs origin/main
+    runs-on: ubuntu-latest
+    env:
+      VERSION_URL: https://api.windyconnect.com/version
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need real history so HEAD of the checked-out main is the true tip.
+          fetch-depth: 0
+
+      - name: Resolve origin/main HEAD
+        id: head
+        run: |
+          MAIN_SHA="$(git rev-parse HEAD)"
+          echo "main_sha=$MAIN_SHA" >> "$GITHUB_OUTPUT"
+          echo "origin/main HEAD: $MAIN_SHA"
+
+      - name: Fetch deployed /version
+        id: deployed
+        run: |
+          set -o pipefail
+          # Retry a few times — a transient edge blip shouldn't flap the check.
+          for attempt in 1 2 3; do
+            if curl -sS --fail --max-time 20 "$VERSION_URL" -o /tmp/version.json; then
+              break
+            fi
+            echo "::warning::/version fetch attempt $attempt failed; retrying…"
+            sleep 5
+          done
+          if [ ! -s /tmp/version.json ]; then
+            echo "::error::Could not reach $VERSION_URL after 3 attempts."
+            exit 1
+          fi
+          cat /tmp/version.json
+          DEPLOYED_SHA="$(jq -r '.commit_sha // ""' /tmp/version.json)"
+          DEPLOYED_VERSION="$(jq -r '.version // "?"' /tmp/version.json)"
+          DEPLOYED_AT="$(jq -r '.deployed_at // "?"' /tmp/version.json)"
+          echo "deployed_sha=$DEPLOYED_SHA" >> "$GITHUB_OUTPUT"
+          echo "deployed_version=$DEPLOYED_VERSION" >> "$GITHUB_OUTPUT"
+          echo "deployed_at=$DEPLOYED_AT" >> "$GITHUB_OUTPUT"
+
+      - name: Compare
+        run: |
+          MAIN_SHA="${{ steps.head.outputs.main_sha }}"
+          DEPLOYED_SHA="${{ steps.deployed.outputs.deployed_sha }}"
+          DEPLOYED_VERSION="${{ steps.deployed.outputs.deployed_version }}"
+          DEPLOYED_AT="${{ steps.deployed.outputs.deployed_at }}"
+
+          {
+            echo "### Prod drift check"
+            echo ""
+            echo "| field | value |"
+            echo "|---|---|"
+            echo "| origin/main HEAD | \`$MAIN_SHA\` |"
+            echo "| deployed commit_sha | \`$DEPLOYED_SHA\` |"
+            echo "| deployed version | \`$DEPLOYED_VERSION\` |"
+            echo "| deployed_at | \`$DEPLOYED_AT\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -z "$DEPLOYED_SHA" ] || [ "$DEPLOYED_SHA" = "dev" ] || [ "$DEPLOYED_SHA" = "unknown" ]; then
+            echo "::error::Deployed /version reports commit_sha='$DEPLOYED_SHA' — the live Worker was deployed without a baked commit sha. Redeploy via backend/scripts/deploy.sh."
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo ":x: **Deployed commit_sha is \`$DEPLOYED_SHA\` — no deploy identity baked in.**" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          if [ "$DEPLOYED_SHA" != "$MAIN_SHA" ]; then
+            echo "::error::DRIFT — production is serving $DEPLOYED_SHA but origin/main is at $MAIN_SHA. Redeploy the backend (backend/scripts/deploy.sh) to close the gap."
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo ":x: **DRIFT detected** — production does not match origin/main. Redeploy \`backend/\`." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          echo "::notice::In sync — production is serving origin/main HEAD ($MAIN_SHA)."
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo ":white_check_mark: **In sync** — production matches origin/main." >> "$GITHUB_STEP_SUMMARY"
