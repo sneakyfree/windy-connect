@@ -334,7 +334,7 @@ describe("provisionBundle — Chat real path (Wave C)", () => {
             JSON.stringify({
               access_token: "syt_real_user_token",
               device_id: "WINDY_CONNECT",
-              user_id: "@u:windychat.ai",
+              user_id: "@u:chat.windychat.ai",
             }),
             { status: 200 },
           );
@@ -373,7 +373,7 @@ describe("provisionBundle — Chat real path (Wave C)", () => {
     // The bundle carries the USER's token, not the admin token.
     expect(bundle.windy_chat?.access_token).toBe("syt_real_user_token");
     expect(bundle.windy_chat?.access_token).not.toBe("syt_admin_token");
-    expect(bundle.windy_chat?.matrix_user_id).toBe("@u:windychat.ai");
+    expect(bundle.windy_chat?.matrix_user_id).toBe("@u:chat.windychat.ai");
   });
 
   it("gateway token missing → falls back to sandbox without calling Synapse", async () => {

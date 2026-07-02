@@ -61,6 +61,7 @@ export interface Env {
   SYNAPSE_ADMIN_TOKEN?: string;
   SYNAPSE_ADMIN_GATEWAY_TOKEN?: string; // X-Windy-Connect-Admin-Token, Wave C
   WINDY_CHAT_HOMESERVER_URL?: string;   // defaults to https://chat.windychat.ai
+  WINDY_CHAT_SERVER_NAME?: string;      // Matrix server_name; defaults to chat.windychat.ai
   MIND_ADMIN_TOKEN?: string;
   MAGIC_LINK_SIGNING_KEY?: string; // 32-byte hex; HS256 signs the magic-link JWT
   RESEND_API_KEY?: string;         // Resend full-access key for transactional email

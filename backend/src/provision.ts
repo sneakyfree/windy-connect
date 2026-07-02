@@ -316,7 +316,12 @@ async function provisionChat(
   real: boolean,
 ): Promise<MatrixChat> {
   const localpart = sanitizeLocalpart(input.google_email);
-  const matrix_user_id = `@${localpart}:windychat.ai`;
+  // server_name must match the live Synapse homeserver (chat.windychat.ai) —
+  // Synapse rejects a user_id whose domain != server_name (M_INVALID_PARAM),
+  // so the admin PUT would 400 on the first real provision. Env-driven with
+  // the correct default (was the bare apex `windychat.ai`).
+  const serverName = env.WINDY_CHAT_SERVER_NAME ?? "chat.windychat.ai";
+  const matrix_user_id = `@${localpart}:${serverName}`;
 
   // Real branch opt-in: BOTH Synapse secrets must be present. Missing
   // SYNAPSE_ADMIN_GATEWAY_TOKEN → nginx would 403; missing
@@ -385,7 +390,7 @@ async function provisionChat(
 
   return {
     kind: "matrix",
-    homeserver: "https://matrix.windychat.ai",
+    homeserver: env.WINDY_CHAT_HOMESERVER_URL ?? "https://chat.windychat.ai",
     matrix_user_id,
     access_token: `syt_sandbox_${localpart}`,
     device_id: "WINDY_CONNECT_SANDBOX",
