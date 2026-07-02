@@ -41,7 +41,7 @@ head_sampling_rate = 1
 ETERNITAS_API_URL = "https://api.eternitas.ai"
 STALWART_ADMIN_URL = "https://mail.windymail.ai"
 STALWART_ADMIN_USER = "admin"
-ENABLE_REAL_PROVISIONING = "false"
+ENABLE_REAL_PROVISIONING = "true"
 ISSUER_NAME = "windy"
 # ISSUER_URL = brand-facing identity (appears in bundle.issuer.url). Brand
 # domain — may or may not be wired as a marketing site.

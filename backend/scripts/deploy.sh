@@ -75,7 +75,7 @@ METADATA=$(cat <<JSON
     {"type": "plain_text", "name": "ETERNITAS_API_URL", "text": "https://api.eternitas.ai"},
     {"type": "plain_text", "name": "STALWART_ADMIN_URL", "text": "https://mail.windymail.ai"},
     {"type": "plain_text", "name": "STALWART_ADMIN_USER", "text": "admin"},
-    {"type": "plain_text", "name": "ENABLE_REAL_PROVISIONING", "text": "false"},
+    {"type": "plain_text", "name": "ENABLE_REAL_PROVISIONING", "text": "true"},
     {"type": "plain_text", "name": "ISSUER_NAME", "text": "windy"},
     {"type": "plain_text", "name": "ISSUER_URL", "text": "https://windyconnect.com"},
     {"type": "plain_text", "name": "API_BASE_URL", "text": "https://api.windyconnect.com"},
