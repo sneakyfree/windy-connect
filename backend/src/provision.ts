@@ -204,7 +204,7 @@ async function provisionMail(
   input: ProvisionInput,
   real: boolean,
   eternitas?: EternitasBlock,
-): Promise<MailBlock> {
+): Promise<MailBlock | undefined> {
   const localpart = sanitizeLocalpart(input.google_email);
 
   // Real provisioning needs a passport — Mail's BotProvisionRequest
@@ -261,7 +261,19 @@ async function provisionMail(
     };
   }
 
-  // Sandbox path: deterministic values that match the prod hostnames so
+  // Free tier in REAL mode (no passport) gets NO mailbox. Mail's real
+  // provisioning requires an eternitas_passport, and shipping the old sandbox
+  // `@windymail.ai` creds in production was a broken mailbox dressed as a
+  // working one (they never authenticate). Omitting is honest + spec-valid
+  // (windy_mail is optional and every consumer guards on it); a free agent
+  // simply has no mailbox until it upgrades to the credentialed (passport)
+  // tier. Dev/sandbox mode (below) keeps a deterministic block so local
+  // config-layout testing still works.
+  if (real) {
+    return undefined;
+  }
+
+  // Dev/sandbox mode: deterministic values that match the prod hostnames so
   // the agent's config layout is identical between sandbox and real.
   const address = `${localpart}@windymail.ai`;
   const password = `sandbox-pass-${localpart}`;

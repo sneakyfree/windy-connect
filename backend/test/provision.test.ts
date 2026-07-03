@@ -186,7 +186,11 @@ describe("provisionBundle — real paths", () => {
     });
   });
 
-  it("free tier: Mail falls back to sandbox values, does NOT call Mail API", async () => {
+  it("free tier: no mailbox (Mail block omitted), does NOT call Mail API", async () => {
+    // Free tier has no passport, so Mail can't be provisioned for real. The
+    // old behavior shipped real-looking-but-broken `sandbox-pass-*` creds;
+    // now we omit the block entirely (honest + spec-valid — windy_mail is
+    // optional and every consumer guards on it).
     let mailCalled = false;
     (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       async (url: string) => {
@@ -218,9 +222,10 @@ describe("provisionBundle — real paths", () => {
     });
 
     expect(mailCalled).toBe(false);
-    expect(bundle.windy_mail?.imap?.password).toBe("sandbox-pass-u");
-    expect(bundle.windy_mail?.address).toBe("u@windymail.ai");
+    expect(bundle.windy_mail).toBeUndefined();
     expect(bundle.eternitas).toBeUndefined();
+    // free tier still gets a real Mind key
+    expect(bundle.windy_mind?.api_key).toBe("wm_free_test");
   });
 
   it("real=true but WINDY_MAIL_SERVICE_TOKEN unset → named error, not silent failure", async () => {
