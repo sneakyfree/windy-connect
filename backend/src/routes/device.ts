@@ -142,10 +142,11 @@ export async function handlePairSubmit(req: Request, env: Env): Promise<Response
     return json({ error: "already_used", status: session.status }, 409);
   }
 
-  // Verify Google id_token if provided. When absent (v1 dev path) we accept
-  // a raw email — see /pair page TODO.
+  // Verify Google id_token if provided. When absent, we accept a raw email —
+  // but ONLY in mock/dev mode (see the real-mode gate immediately below).
   let verifiedEmail = google_email;
   let verifiedSub = google_sub;
+  let identityVerified = false;
   if (id_token) {
     const claims = await verifyGoogleIdToken(id_token, env);
     if (!claims) {
@@ -153,7 +154,24 @@ export async function handlePairSubmit(req: Request, env: Env): Promise<Response
     }
     verifiedEmail = claims.email;
     verifiedSub = claims.sub;
+    identityVerified = true;
   }
+
+  // SECURITY: in real-provisioning mode, never mint a REAL bundle (Synapse
+  // account + Mind key + mailbox + passport) from an unverified raw email.
+  // verifyGoogleIdToken is still a stub, so the only real pairing path is the
+  // magic-link flow (/v1/pair/start + /v1/pair/verify). Without this gate,
+  // anyone with a user_code + a trivially-obtained CSRF token could mint a
+  // real bundle bound to an arbitrary email they don't control. The raw-email
+  // dev path stays available only when ENABLE_REAL_PROVISIONING !== "true".
+  if (env.ENABLE_REAL_PROVISIONING === "true" && !identityVerified) {
+    return json({
+      error: "verification_required",
+      error_description:
+        "this pairing path requires a verified identity; use the magic-link flow",
+    }, 403);
+  }
+
   if (!verifiedEmail) {
     return json({ error: "missing_identity", error_description: "id_token or google_email required" }, 400);
   }
