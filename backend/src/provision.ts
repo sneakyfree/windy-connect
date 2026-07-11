@@ -432,6 +432,14 @@ interface MindIssueResponse {
   issued_by: string;
 }
 
+// The bundle's default_model must be a concrete id present in Mind's live
+// catalog (GET /v1/models). The old placeholder "windy-mind-auto" was never a
+// real catalog id, so a hatched agent's FIRST /v1/chat call 422'd on it
+// (SOTU-2 G10). llama-3.3-70b-versatile is a free-tier, always-listed general
+// model — the same default the rest of the ecosystem (Translate broker, agent
+// roster) uses. If Mind ever ships a real router alias, swap this one constant.
+const DEFAULT_MIND_MODEL = "llama-3.3-70b-versatile";
+
 async function provisionMind(
   env: Env,
   input: ProvisionInput,
@@ -462,7 +470,7 @@ async function provisionMind(
       kind: "openai-compatible",
       base_url: `${mindApi}/v1`,
       api_key: data.key,
-      default_model: "windy-mind-auto",
+      default_model: DEFAULT_MIND_MODEL,
       models_endpoint: `${mindApi}/v1/models`,
     };
   }
@@ -472,7 +480,7 @@ async function provisionMind(
     kind: "openai-compatible",
     base_url: `${mindApi}/v1`,
     api_key: `wm_sandbox_${localpart}`,
-    default_model: "windy-mind-auto",
+    default_model: DEFAULT_MIND_MODEL,
     models_endpoint: `${mindApi}/v1/models`,
   };
 }

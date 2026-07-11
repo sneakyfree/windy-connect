@@ -85,7 +85,7 @@ The Windy ecosystem is the **reference issuer** for v1. OpenClaw, Hermes-based f
     "kind": "openai-compatible",
     "base_url": "https://api.windymind.ai/v1",
     "api_key": "<scoped token; MAY equal the EPT>",
-    "default_model": "windy-mind-auto",
+    "default_model": "llama-3.3-70b-versatile",
     "models_endpoint": "https://api.windymind.ai/v1/models"
   },
 
@@ -156,7 +156,7 @@ The `kind` field discriminates the inference protocol. v1 defines only `openai-c
 |---|---|---|
 | `base_url` | yes | What the agent sets as `OPENAI_BASE_URL`. |
 | `api_key` | yes | What the agent sets as `OPENAI_API_KEY`. MAY equal the EPT (if Mind accepts EPTs directly) or a separately-scoped token. |
-| `default_model` | no | A sensible default model identifier. v1 reserves `windy-mind-auto` for "let Mind route to the best free model." |
+| `default_model` | no | A sensible default model identifier — MUST be a concrete id present in Mind's live catalogue (`GET /v1/models`), e.g. `llama-3.3-70b-versatile`. (The old `windy-mind-auto` placeholder was never a real catalogue id and 422'd on an agent's first call — SOTU-2 G10. If Mind ships a real router alias, adopt it here.) |
 | `models_endpoint` | no | Where to fetch the model catalogue. Defaults to `<base_url>/models` per OpenAI convention. |
 
 ## Free tier
