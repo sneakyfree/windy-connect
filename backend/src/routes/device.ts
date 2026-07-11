@@ -216,18 +216,82 @@ async function strictJson(req: Request): Promise<unknown> {
   }
 }
 
+const GOOGLE_CERTS_URL = "https://www.googleapis.com/oauth2/v3/certs";
+const GOOGLE_ISSUERS = new Set(["accounts.google.com", "https://accounts.google.com"]);
+
+const gb64urlToBytes = (s: string): Uint8Array => {
+  const pad = (str: string) => str + "===".slice(0, (4 - (str.length % 4)) % 4);
+  const bin = atob(pad(s.replace(/-/g, "+").replace(/_/g, "/")));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+};
+
+interface GoogleJwk { kid: string; n: string; e: string; kty: string; alg?: string; }
+
 /**
- * Verify a Google-issued id_token by checking the aud + signature against
- * Google's JWKS. v1 stub — implement using a JWKS-aware verifier (e.g.,
- * `jose` library or hand-rolled WebCrypto P-256 verify).
+ * Verify a Google-issued id_token: RS256 signature against Google's JWKS,
+ * plus the standard claim checks (iss, aud === our client id, exp, verified
+ * email). Returns parsed claims on success, null on any failure.
  *
- * Returns parsed claims on success, null on failure.
+ * Fails closed when GOOGLE_OAUTH_CLIENT_ID is unset — without a client id we
+ * have no audience to bind the token to, so we must NOT accept it. (Prod must
+ * set GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET to light this path;
+ * until then the magic-link flow is the working real path.)
  */
 async function verifyGoogleIdToken(
-  _idToken: string,
-  _env: Env,
+  idToken: string,
+  env: Env,
 ): Promise<{ sub: string; email: string } | null> {
-  // TODO: Implement using https://www.googleapis.com/oauth2/v3/certs JWKS.
-  // For now, only the dev path (raw google_email) is supported.
-  return null;
+  try {
+    const expectedAud = env.GOOGLE_OAUTH_CLIENT_ID;
+    if (!expectedAud) return null; // fail closed — no audience to check against
+
+    const parts = idToken.split(".");
+    if (parts.length !== 3) return null;
+    const headerB64 = parts[0], payloadB64 = parts[1], sigB64 = parts[2];
+    if (!headerB64 || !payloadB64 || !sigB64) return null;
+
+    const header = JSON.parse(new TextDecoder().decode(gb64urlToBytes(headerB64))) as { alg: string; kid?: string };
+    if (header.alg !== "RS256" || !header.kid) return null;
+
+    const certs = await fetch(GOOGLE_CERTS_URL, { cf: { cacheTtl: 3600, cacheEverything: true } as any });
+    if (!certs.ok) return null;
+    const { keys } = (await certs.json()) as { keys: GoogleJwk[] };
+    const jwk = keys.find((k) => k.kid === header.kid);
+    if (!jwk) return null;
+
+    const key = await crypto.subtle.importKey(
+      "jwk",
+      { kty: jwk.kty, n: jwk.n, e: jwk.e, alg: "RS256", ext: true },
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+      false,
+      ["verify"],
+    );
+
+    const signedInput = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+    const valid = await crypto.subtle.verify(
+      "RSASSA-PKCS1-v1_5",
+      key,
+      gb64urlToBytes(sigB64),
+      signedInput,
+    );
+    if (!valid) return null;
+
+    const claims = JSON.parse(new TextDecoder().decode(gb64urlToBytes(payloadB64))) as {
+      iss?: string; aud?: string; exp?: number; sub?: string;
+      email?: string; email_verified?: boolean | string;
+    };
+
+    if (!claims.iss || !GOOGLE_ISSUERS.has(claims.iss)) return null;
+    if (claims.aud !== expectedAud) return null;
+    if (!claims.exp || claims.exp <= Math.floor(Date.now() / 1000)) return null;
+    if (!claims.sub || !claims.email) return null;
+    // Google encodes email_verified as boolean true or the string "true".
+    if (claims.email_verified !== true && claims.email_verified !== "true") return null;
+
+    return { sub: claims.sub, email: claims.email };
+  } catch {
+    return null;
+  }
 }

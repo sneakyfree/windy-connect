@@ -95,7 +95,7 @@ def make_mock_bundle(*, tier: str = "credentialed") -> Bundle:
             kind="openai-compatible",
             base_url="https://api.windymind.ai/v1",
             api_key="wm_mock_api_key_replace_in_real_flow",
-            default_model="windy-mind-auto",
+            default_model="llama-3.3-70b-versatile",
             models_endpoint="https://api.windymind.ai/v1/models",
         ),
         tier=tier,  # type: ignore[arg-type]
