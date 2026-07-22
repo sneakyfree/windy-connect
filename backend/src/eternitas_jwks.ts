@@ -27,6 +27,7 @@
  */
 
 import type { Env } from "./index";
+import { fetchWithTimeout } from "./http";
 
 const JWKS_CACHE_TTL_SECONDS = 600;
 const JWKS_CACHE_KEY_PREFIX = "https://cache.windyconnect.com/eternitas-jwks/";
@@ -103,7 +104,7 @@ async function fetchJwks(env: Env): Promise<JwkSet> {
     }
   }
 
-  const res = await fetch(url, { headers: { accept: "application/json" } });
+  const res = await fetchWithTimeout(url, { headers: { accept: "application/json" } });
   if (!res.ok) {
     throw new Error(`jwks fetch ${res.status}`);
   }

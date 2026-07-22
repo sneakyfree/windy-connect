@@ -19,6 +19,7 @@
 import type { Env } from "../index";
 import { json } from "../index";
 import { signMagicLink, verifyMagicLink } from "../magic_link";
+import { fetchWithTimeout } from "../http";
 import {
   getByDeviceCode,
   getDeviceCodeByUserCode,
@@ -77,7 +78,7 @@ export async function handlePairStart(req: Request, env: Env): Promise<Response>
   const link = `${env.API_BASE_URL}/v1/pair/verify?token=${encodeURIComponent(token)}`;
 
   // Send via Resend
-  const emailRes = await fetch(RESEND_ENDPOINT, {
+  const emailRes = await fetchWithTimeout(RESEND_ENDPOINT, {
     method: "POST",
     headers: {
       authorization: `Bearer ${env.RESEND_API_KEY}`,
@@ -171,7 +172,7 @@ export async function handlePairVerify(req: Request, env: Env): Promise<Response
     const issued_at = bundle.issued_at;
     const sig = await hmacSha256Hex(env.WINDY_CONNECT_WEBHOOK_SECRET, `${email}:${issued_at}`);
     try {
-      const res = await fetch(`${env.WINDY_PRO_ACCOUNT_SERVER_URL}/api/v1/identity/connect/paired`, {
+      const res = await fetchWithTimeout(`${env.WINDY_PRO_ACCOUNT_SERVER_URL}/api/v1/identity/connect/paired`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({

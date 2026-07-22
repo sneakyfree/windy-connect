@@ -9,6 +9,7 @@
 import type { Env } from "../index";
 import { json } from "../index";
 import { generateDeviceCode, generateUserCode, normalizeUserCode } from "../codes";
+import { fetchWithTimeout } from "../http";
 import { getByDeviceCode, getDeviceCodeByUserCode, putSession, updateSession } from "../store";
 import type { DeviceSession, Tier } from "../types";
 import { provisionBundle } from "../provision";
@@ -255,7 +256,7 @@ async function verifyGoogleIdToken(
     const header = JSON.parse(new TextDecoder().decode(gb64urlToBytes(headerB64))) as { alg: string; kid?: string };
     if (header.alg !== "RS256" || !header.kid) return null;
 
-    const certs = await fetch(GOOGLE_CERTS_URL, { cf: { cacheTtl: 3600, cacheEverything: true } as any });
+    const certs = await fetchWithTimeout(GOOGLE_CERTS_URL, { cf: { cacheTtl: 3600, cacheEverything: true } as any });
     if (!certs.ok) return null;
     const { keys } = (await certs.json()) as { keys: GoogleJwk[] };
     const jwk = keys.find((k) => k.kid === header.kid);

@@ -10,6 +10,7 @@
 
 import type { Env } from "../index";
 import { json } from "../index";
+import { fetchWithTimeout } from "../http";
 
 const GOOGLE_SCOPES = ["openid", "email", "profile"].join(" ");
 
@@ -64,7 +65,7 @@ export async function handleGoogleCallback(req: Request, env: Env): Promise<Resp
 
   // Exchange code for tokens
   const redirectUri = new URL("/v1/oauth/google/callback", env.API_BASE_URL).toString();
-  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+  const tokenRes = await fetchWithTimeout("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
