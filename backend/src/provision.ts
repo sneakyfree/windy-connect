@@ -10,6 +10,7 @@
  */
 
 import type { Env } from "./index";
+import { fetchWithTimeout } from "./http";
 import type {
   Bundle,
   EternitasBlock,
@@ -124,7 +125,7 @@ async function provisionEternitas(
   real: boolean,
 ): Promise<EternitasBlock> {
   if (real) {
-    const res = await fetch(`${env.ETERNITAS_API_URL}/api/v1/bots/auto-hatch`, {
+    const res = await fetchWithTimeout(`${env.ETERNITAS_API_URL}/api/v1/bots/auto-hatch`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -216,7 +217,7 @@ async function provisionMail(
       throw new Error("WINDY_MAIL_SERVICE_TOKEN secret is unset");
     }
     const mailApi = env.WINDY_MAIL_API_URL ?? "https://api.windymail.ai";
-    const res = await fetch(`${mailApi}/api/v1/provision/bot`, {
+    const res = await fetchWithTimeout(`${mailApi}/api/v1/provision/bot`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -347,7 +348,7 @@ async function provisionChat(
 
     // 1. Create-or-update the user. 200 (existing) or 201 (new) — both
     //    are fine for re-pair.
-    const createRes = await fetch(
+    const createRes = await fetchWithTimeout(
       `${base}/_synapse/admin/v2/users/${encodeURIComponent(userId)}`,
       {
         method: "PUT",
@@ -372,7 +373,7 @@ async function provisionChat(
 
     // 2. Mint an access_token AS the user. The admin login endpoint
     //    issues a token without the user's password.
-    const loginRes = await fetch(
+    const loginRes = await fetchWithTimeout(
       `${base}/_synapse/admin/v1/users/${encodeURIComponent(userId)}/login`,
       {
         method: "POST",
@@ -451,7 +452,7 @@ async function provisionMind(
     if (!env.MIND_ADMIN_TOKEN) {
       throw new Error("MIND_ADMIN_TOKEN secret is unset");
     }
-    const res = await fetch(`${mindApi}/admin/keys`, {
+    const res = await fetchWithTimeout(`${mindApi}/admin/keys`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
