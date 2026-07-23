@@ -35,9 +35,18 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build sdist + wheel
+  # Single-job build+publish: the account's billing lock blocks Actions
+  # artifact storage even for self-hosted runs, so the old build → upload
+  # → download → publish hand-off cannot work. Building in the same job
+  # and publishing straight from dist/ needs no artifact storage at all.
+  publish:
+    name: Build + publish to PyPI
     runs-on: [self-hosted, linux, x64]
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: read
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.target == 'pypi'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -45,43 +54,26 @@ jobs:
           python-version: '3.12'
       - run: pip install build
       - run: python -m build
-      - uses: actions/upload-artifact@v4
-        with:
-          retention-days: 3
-          name: dist
-          path: dist/
-
-  publish:
-    name: Publish to PyPI
-    needs: build
-    runs-on: [self-hosted, linux, x64]
-    environment: pypi
-    permissions:
-      id-token: write
-    if: startsWith(github.ref, 'refs/tags/v') || inputs.target == 'pypi'
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           attestations: true
           verbose: true
 
   publish-test:
-    name: Publish to TestPyPI (manual dispatch only)
-    needs: build
+    name: Build + publish to TestPyPI (manual dispatch only)
     runs-on: [self-hosted, linux, x64]
     environment: testpypi
     permissions:
       id-token: write
+      contents: read
     if: inputs.target == 'testpypi'
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          name: dist
-          path: dist/
+          python-version: '3.12'
+      - run: pip install build
+      - run: python -m build
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
