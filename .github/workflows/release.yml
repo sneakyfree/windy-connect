@@ -37,7 +37,7 @@ permissions:
 jobs:
   build:
     name: Build sdist + wheel
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # runner-lint-allow — CD/hosted-only; disabled, manual until CD mission
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -47,13 +47,14 @@ jobs:
       - run: python -m build
       - uses: actions/upload-artifact@v4
         with:
+          retention-days: 3
           name: dist
           path: dist/
 
   publish:
     name: Publish to PyPI
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # runner-lint-allow — CD/hosted-only; disabled, manual until CD mission
     environment: pypi
     permissions:
       id-token: write
@@ -71,7 +72,7 @@ jobs:
   publish-test:
     name: Publish to TestPyPI (manual dispatch only)
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # runner-lint-allow — CD/hosted-only; disabled, manual until CD mission
     environment: testpypi
     permissions:
       id-token: write
