@@ -20,13 +20,15 @@ permissions:
 jobs:
   python:
     name: pytest + ruff
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     strategy:
       fail-fast: false
       matrix:
         python-version: ['3.11', '3.12', '3.13']
     steps:
       - uses: actions/checkout@v4
+      - name: runner-lint (hosted runners are billing-locked)
+        run: bash "$GITHUB_WORKSPACE/.github/lint/lint-runner-labels.sh" "$GITHUB_WORKSPACE/.github/workflows"
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -37,7 +39,7 @@ jobs:
 
   worker:
     name: Worker build (TypeScript)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -56,7 +58,7 @@ jobs:
 
   skill-sha:
     name: SKILL.md integrity
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4
       - name: Worker-served SKILL.md matches source

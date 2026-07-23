@@ -30,7 +30,7 @@ permissions:
 jobs:
   drift:
     name: Worker /version vs origin/main
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     env:
       VERSION_URL: https://api.windyconnect.com/version
     steps:
